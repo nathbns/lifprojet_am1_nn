@@ -1,0 +1,11 @@
+torch
+torchvision
+opencv-python 
+numpy 
+matplotlib
+Pillow 
+scipy
+kaggle
+kagglehub
+scikit-learn
+gradio
