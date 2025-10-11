@@ -1,8 +1,8 @@
 # LifProjet - AM1
 
 ## Yolo Version 1 
-- On suit l'article: https://arxiv.org/pdf/1506.02640 \
-- Recoder de zero, entrainer sur la dataset PASCAL VOC (telecharge via kaggle). \
+- On suit l'article: https://arxiv.org/pdf/1506.02640 
+- Recoder de zero, entrainer sur la dataset PASCAL VOC (telecharge via kaggle). 
 - Entrainer 3H sur colab avec le GPU A100.
 
 **Pour l'essayer:** \
