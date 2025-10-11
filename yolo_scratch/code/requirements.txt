@@ -1,7 +1,0 @@
-torch
-torchvision
-tqdm
-matplotlib
-pandas
-gradio
-opencv-python

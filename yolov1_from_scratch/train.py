@@ -1,15 +1,10 @@
-"""
-Main file for training Yolo model on Pascal VOC dataset
-
-"""
-
 import torch
 import torchvision.transforms as transforms
 import torch.optim as optim
 import torchvision.transforms.functional as FT
 from tqdm import tqdm
 from torch.utils.data import DataLoader
-from model import Yolov1
+from model import Yolo_V1
 from dataset import VOCDataset
 from utils import (
     non_max_suppression,
@@ -21,23 +16,38 @@ from utils import (
     save_checkpoint,
     load_checkpoint,
 )
-from loss import YoloLoss
+from loss import Loss_Yolo
+import os
 
 seed = 123
 torch.manual_seed(seed)
 
-# Hyperparameters etc. 
+# hyperparametres 
 LEARNING_RATE = 2e-5
 DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
-BATCH_SIZE = 64 # 64 in original paper but I don't have that much vram, grad accum?
+BATCH_SIZE = 64 
 WEIGHT_DECAY = 0
 EPOCHS = 50
 NUM_WORKERS = 4
 PIN_MEMORY = True
 LOAD_MODEL = False
-LOAD_MODEL_FILE = "overfit.pth.tar"
-IMG_DIR = "data/images"
-LABEL_DIR = "data/labels"
+LOAD_MODEL_FILE = "checkpoint_epoch_50.pth.tar"
+
+# config pour les data import de kaggle dans ma session colab
+KAGGLE_DATA_PATH = os.environ.get("KAGGLE_DATA_PATH", None)
+
+if KAGGLE_DATA_PATH:
+    # colab
+    IMG_DIR = os.path.join(KAGGLE_DATA_PATH, "images")
+    LABEL_DIR = os.path.join(KAGGLE_DATA_PATH, "labels")
+    TRAIN_CSV = os.path.join(KAGGLE_DATA_PATH, "train.csv")
+    TEST_CSV = os.path.join(KAGGLE_DATA_PATH, "test.csv")
+else:
+    # local
+    IMG_DIR = "data/images"
+    LABEL_DIR = "data/labels"
+    TRAIN_CSV = "data/train.csv"
+    TEST_CSV = "data/test.csv"
 
 
 class Compose(object):
@@ -67,31 +77,33 @@ def train_fn(train_loader, model, optimizer, loss_fn):
         loss.backward()
         optimizer.step()
 
-        # update progress bar
         loop.set_postfix(loss=loss.item())
 
-    print(f"Mean loss was {sum(mean_loss)/len(mean_loss)}")
+    print(f"loss moyenne: {sum(mean_loss)/len(mean_loss)}")
 
 
 def main():
-    model = Yolov1(split_size=7, num_boxes=2, num_classes=20).to(DEVICE)
+    model = Yolo_V1(split_size=7, num_boxes=2, num_classes=20).to(DEVICE)
     optimizer = optim.Adam(
         model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY
     )
-    loss_fn = YoloLoss()
+    loss_fn = Loss_Yolo()
 
     if LOAD_MODEL:
         load_checkpoint(torch.load(LOAD_MODEL_FILE), model, optimizer)
 
     train_dataset = VOCDataset(
-        "data/train.csv",
+        TRAIN_CSV,
         transform=transform,
         img_dir=IMG_DIR,
         label_dir=LABEL_DIR,
     )
 
     test_dataset = VOCDataset(
-        "data/test.csv", transform=transform, img_dir=IMG_DIR, label_dir=LABEL_DIR,
+        TEST_CSV, 
+        transform=transform, 
+        img_dir=IMG_DIR, 
+        label_dir=LABEL_DIR,
     )
 
     train_loader = DataLoader(
@@ -113,16 +125,6 @@ def main():
     )
 
     for epoch in range(EPOCHS):
-        # for x, y in train_loader:
-        #    x = x.to(DEVICE)
-        #    for idx in range(8):
-        #        bboxes = cellboxes_to_boxes(model(x))
-        #        bboxes = non_max_suppression(bboxes[idx], iou_threshold=0.5, threshold=0.4, box_format="midpoint")
-        #        plot_image(x[idx].permute(1,2,0).to("cpu"), bboxes)
-
-        #    import sys
-        #    sys.exit()
-
         pred_boxes, target_boxes = get_bboxes(
             train_loader, model, iou_threshold=0.5, threshold=0.4, device=DEVICE
         )
@@ -130,20 +132,11 @@ def main():
         mean_avg_prec = mean_average_precision(
             pred_boxes, target_boxes, iou_threshold=0.5, box_format="midpoint"
         )
-        print(f"Train mAP: {mean_avg_prec}")
-
-        # if mean_avg_prec > 0.9:
-        #    checkpoint = {
-        #        "state_dict": model.state_dict(),
-        #        "optimizer": optimizer.state_dict(),
-        #    }
-        #    save_checkpoint(checkpoint, filename=LOAD_MODEL_FILE)
-        #    import time
-        #    time.sleep(10)
+        # print(f"Train: {mean_avg_prec}")
 
         train_fn(train_loader, model, optimizer, loss_fn)
 
-         # Sauvegarder tous les 10 époques
+         # Sauvegarder tous les 10 epochs
         if (epoch + 1) % 10 == 0:
             checkpoint = {
                 "state_dict": model.state_dict(),
@@ -152,7 +145,7 @@ def main():
                 "mAP": mean_avg_prec,
             }
             save_checkpoint(checkpoint, filename=f"checkpoint_epoch_{epoch+1}.pth.tar")
-            print(f"💾 Checkpoint sauvegardé : epoch {epoch+1}")
+            print(f"sauvegarde du checkpoint model : epoch {epoch+1}")
 
 
 if __name__ == "__main__":

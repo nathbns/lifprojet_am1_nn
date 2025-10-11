@@ -5,18 +5,6 @@ import matplotlib.patches as patches
 from collections import Counter
 
 def intersection_over_union(boxes_preds, boxes_labels, box_format="midpoint"):
-    """
-    Calculates intersection over union
-
-    Parameters:
-        boxes_preds (tensor): Predictions of Bounding Boxes (BATCH_SIZE, 4)
-        boxes_labels (tensor): Correct labels of Bounding Boxes (BATCH_SIZE, 4)
-        box_format (str): midpoint/corners, if boxes (x,y,w,h) or (x1,y1,x2,y2)
-
-    Returns:
-        tensor: Intersection over union for all examples
-    """
-
     if box_format == "midpoint":
         box1_x1 = boxes_preds[..., 0:1] - boxes_preds[..., 2:3] / 2
         box1_y1 = boxes_preds[..., 1:2] - boxes_preds[..., 3:4] / 2

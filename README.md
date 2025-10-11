@@ -1,10 +1,10 @@
 # lifprojet_am1_nn
 
-# Deep learning part of the project
-Tous les fichiers python pour l'instant, par encore la version à jours.
-Commit à venir avec les poids de 3 models entrainer 'from scratch'.
+# Yolo Version 1
+Recoder de zero, entrainer sur la dataset PASCAL VOC (telecharge via kaggle).
+Entrainer 3H sur colab avec le GPU A100.
 
-# dossier webapp
+# Pour le dossier webapp (pour l'instant aucun model implementer)
 prerequis: installer bun
 ```bash
 cd webapp && bun i 
