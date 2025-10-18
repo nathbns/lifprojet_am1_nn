@@ -1,101 +1,125 @@
-import Link from "next/link";
+"use client";
+
+import { FlickeringGrid } from "@/components/ui/flickering-grid-hero";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Brain, FileText, TestTube2, Zap, Target, Users } from "lucide-react";
+import Link from "next/link";
+import { GlowingEffect } from "@/components/ui/glowing-effect-total"
+
+
+// SVG du texte YOCO encodé en base64
+const YOCO_LOGO_BASE64 = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAwIiBoZWlnaHQ9IjIwMCIgdmlld0JveD0iMCAwIDYwMCAyMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGRvbWluYW50LWJhc2VsaW5lPSJtaWRkbGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGZvbnQtZmFtaWx5PSJzYW5zLXNlcmlmIiBmb250LXdlaWdodD0iYm9sZCIgZm9udC1zaXplPSIxMjAiIGZpbGw9IndoaXRlIj5ZT0NPPC90ZXh0Pjwvc3ZnPg==";
+
+// Style du masque pour l'effet sur le texte
+const maskStyle = {
+  WebkitMaskImage: `url('${YOCO_LOGO_BASE64}')`,
+  WebkitMaskSize: '80vw',
+  WebkitMaskPosition: 'center',
+  WebkitMaskRepeat: 'no-repeat',
+  maskImage: `url('${YOCO_LOGO_BASE64}')`,
+  maskSize: '80vw',
+  maskPosition: 'center',
+  maskRepeat: 'no-repeat',
+} as const;
+
+// Fonction pour convertir oklch/hsl en RGB
+function getThemeColor(cssVariable: string): string {
+  if (typeof window === 'undefined') return 'rgb(0, 0, 0)';
+  
+  const rootStyles = getComputedStyle(document.documentElement);
+  const colorValue = rootStyles.getPropertyValue(cssVariable).trim();
+  
+  // Créer un élément temporaire pour obtenir la couleur RGB
+  const temp = document.createElement('div');
+  temp.style.color = colorValue;
+  document.body.appendChild(temp);
+  const rgb = getComputedStyle(temp).color;
+  document.body.removeChild(temp);
+  
+  return rgb;
+}
 
 export default function Home() {
+  const [themeColors, setThemeColors] = useState({
+    primary: 'rgb(161, 117, 83)',
+    background: 'rgb(161, 117, 83)',
+  });
+  const [isDark, setIsDark] = useState(false);
+
+  useEffect(() => {
+    // Fonction pour mettre à jour les couleurs du thème
+    const updateThemeColors = () => {
+      const isDarkMode = document.documentElement.classList.contains('dark');
+      setIsDark(isDarkMode);
+      
+      setThemeColors({
+        primary: getThemeColor('--primary'),
+        // En mode clair, utiliser primary (plus foncé), en mode sombre, utiliser secondary
+        background: isDarkMode ? getThemeColor('--secondary') : getThemeColor('--primary'),
+      });
+    };
+
+    // Mettre à jour au chargement
+    updateThemeColors();
+
+    // Observer les changements de thème
+    const observer = new MutationObserver(updateThemeColors);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
+  const GRID_CONFIG = {
+    background: {
+      color: themeColors.background, // Primary en clair, Secondary en sombre
+      maxOpacity: isDark ? 0.4 : 0.1,
+      flickerChance: 0.12,
+      squareSize: 4,
+      gridGap: 4,
+    },
+    logo: {
+      color: themeColors.primary, // Utilise --primary du thème
+      maxOpacity: isDark ? 0.7 : 1,
+      flickerChance: 0.18,
+      squareSize: 4,
+      gridGap: 6,
+    },
+  };
+
   return (
-    <div className="flex flex-col min-h-screen max-w-5xl mx-auto">
-      {/* Hero Section */}
-      <section className="flex-1 flex items-center justify-center px-4 py-16">
-        <div className="container max-w-6xl mx-auto text-center">
-          <div className="flex items-center justify-center mb-8">
-            <Brain className="h-16 w-16 text-primary mr-4" />
-            <h1 className="text-5xl md:text-7xl font-bold bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
-              LIF Project
-            </h1>
-          </div>
-          
-          <p className="text-xl md:text-2xl text-muted-foreground mb-8 max-w-3xl mx-auto">
-            Plateforme de test et d'évaluation de modèles d'intelligence artificielle.
-            Testez, analysez et optimisez vos modèles avec notre interface moderne.
-          </p>
-          
-          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-            <Button asChild size="lg" className="w-full sm:w-auto">
-              <Link href="/test">
-                <TestTube2 className="mr-2 h-5 w-5" />
-                Tester les Modèles
-              </Link>
+    <div className="flex w-full h-full justify-center items-center">
+      <FlickeringGrid
+        className="absolute inset-0 z-0 h-full w-full [mask-image:radial-gradient(1000px_circle_at_center,white,transparent)]"
+        {...GRID_CONFIG.background}
+      />
+      <div 
+        className="absolute inset-0 z-0 translate-y-[2vh]" 
+        style={{
+          ...maskStyle,
+          animation: 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        }}
+      >
+        <FlickeringGrid {...GRID_CONFIG.logo} />
+      </div>
+      <div className="absolute z-10 flex flex-col items-center gap-8 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 mt-40">
+        <p className="opacity-70 text-base text-center max-w-2xl leading-relaxed">
+          From building from scratch Yolo v1 to Yolo v3 to YOCO (You Only Chess Once)!
+        </p>
+        <div className="relative inline-block">
+          <Link href="/yolo" className="block">
+            <Button
+              variant="outline"
+              className="relative z-10 rounded-full px-8 py-4 bg-background/70 backdrop-blur border border-[var(--border)] text-foreground hover:bg-background/80 transition-all duration-200"
+            >
+              Yolov1
             </Button>
-            <Button variant="outline" size="lg" asChild className="w-full sm:w-auto">
-              <Link href="/docs">
-                <FileText className="mr-2 h-5 w-5" />
-                Documentation
-              </Link>
-            </Button>
-          </div>
+          </Link>
+          <GlowingEffect className="rounded-full" />
         </div>
-      </section>
-
-      {/* Features Section */}
-      <section className="py-16 px-4">
-        <div className="container max-w-6xl mx-auto">
-          <h2 className="text-3xl md:text-4xl font-bold text-center mb-12">
-            Fonctionnalités Principales
-          </h2>
-          
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <Card className="border-2 hover:border-primary/20 transition-colors">
-              <CardHeader>
-                <Zap className="h-12 w-12 text-primary mb-4" />
-                <CardTitle>Test Rapide</CardTitle>
-                <CardDescription>
-                  Interface intuitive pour tester rapidement vos modèles avec différents types d'entrées.
-                </CardDescription>
-              </CardHeader>
-            </Card>
-            
-            <Card className="border-2 hover:border-primary/20 transition-colors">
-              <CardHeader>
-                <Target className="h-12 w-12 text-primary mb-4" />
-                <CardTitle>Analyse Précise</CardTitle>
-                <CardDescription>
-                  Obtenez des métriques détaillées et des analyses de performance pour vos modèles.
-                </CardDescription>
-              </CardHeader>
-            </Card>
-            
-            <Card className="border-2 hover:border-primary/20 transition-colors">
-              <CardHeader>
-                <Users className="h-12 w-12 text-primary mb-4" />
-                <CardTitle>Interface Moderne</CardTitle>
-                <CardDescription>
-                  Design épuré avec mode sombre/clair et composants shadcn/ui pour une expérience optimale.
-                </CardDescription>
-              </CardHeader>
-            </Card>
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="py-16 px-4">
-        <div className="container max-w-4xl mx-auto text-center">
-          <h2 className="text-3xl md:text-4xl font-bold mb-6">
-            Prêt à tester vos modèles ?
-          </h2>
-          <p className="text-xl text-muted-foreground mb-8">
-            Commencez dès maintenant avec notre interface de test intuitive.
-          </p>
-          <Button asChild size="lg">
-            <Link href="/test">
-              <Brain className="mr-2 h-5 w-5" />
-              Commencer le Test
-            </Link>
-          </Button>
-        </div>
-      </section>
+      </div>
     </div>
   );
 }

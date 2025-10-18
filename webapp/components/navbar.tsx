@@ -12,12 +12,16 @@ const navigation = [
     href: "/",
   },
   {
-    name: "Test Models",
-    href: "/test",
+    name: "YOLO",
+    href: "/yolo",
   },
   {
     name: "Documentation",
     href: "/docs",
+  },
+  {
+    name: "Chess",
+    href: "/chess",
   },
 ]
 
@@ -44,6 +48,11 @@ export function Navbar() {
         else if (e.key === "3") {
           e.preventDefault()
           window.location.href = "/docs"
+        }
+        // Cmd+4 pour Chess
+        else if (e.key === "4") {
+          e.preventDefault()
+          window.location.href = "/chess"
         }
         // Échapper pour fermer le menu mobile
         else if (e.key === "Escape" && isMobileMenuOpen) {
