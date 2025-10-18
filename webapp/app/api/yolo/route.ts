@@ -21,26 +21,26 @@ export async function POST(req: Request) {
       show_confidence,
     });
     return NextResponse.json({ result });
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Mode debug: renvoyer aussi le schéma d'API Gradio pour inspection
     try {
       const client = await Client.connect("nathbns/yolo1_from_scratch");
       const api = await client.view_api();
       // Certaines versions exposent aussi 'config' ou 'endpoints'
-      const config: any = (client as any).config || null;
-      const namedEndpoints: any = (client as any).endpoints || null;
+      const config: unknown = (client as unknown as Record<string, unknown>).config || null;
+      const namedEndpoints: unknown = (client as unknown as Record<string, unknown>).endpoints || null;
       return NextResponse.json(
         {
-          error: error?.message || "Erreur interne",
+          error: (error as Error)?.message || "Erreur interne",
           debug: true,
-          endpoints: Array.isArray((api as any)?.apis)
-            ? (api as any).apis
-            : Object.values(((api as any)?.apis) || {}).map((a: any) => ({
-                endpoint: a?.endpoint || a?.path,
-                inputs: a?.inputs?.map((i: any) => ({
-                  label: i?.label,
-                  name: i?.name,
-                  type: i?.type || i?.component,
+          endpoints: Array.isArray((api as unknown as Record<string, unknown>)?.apis)
+            ? (api as unknown as Record<string, unknown>).apis
+            : Object.values(((api as unknown as Record<string, unknown>)?.apis) || {}).map((a: unknown) => ({
+                endpoint: (a as Record<string, unknown>)?.endpoint || (a as Record<string, unknown>)?.path,
+                inputs: ((a as Record<string, unknown>)?.inputs as unknown[])?.map((i: unknown) => ({
+                  label: (i as Record<string, unknown>)?.label,
+                  name: (i as Record<string, unknown>)?.name,
+                  type: (i as Record<string, unknown>)?.type || (i as Record<string, unknown>)?.component,
                 })),
               })),
           apiRaw: api,
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
       );
     } catch (_) {
       return NextResponse.json(
-        { error: error?.message || "Erreur interne" },
+        { error: (error as Error)?.message || "Erreur interne" },
         { status: 500 }
       );
     }

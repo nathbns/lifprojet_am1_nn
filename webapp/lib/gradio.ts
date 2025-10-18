@@ -28,7 +28,7 @@ export async function predictYoloFromSpace(
     confidence_threshold: options?.confidence_threshold ?? 0.4,
     iou_threshold: options?.iou_threshold ?? 0.5,
     show_confidence: options?.show_confidence ?? true,
-  } as any);
+  } as Record<string, unknown>);
   return result as YoloPrediction;
 }
 

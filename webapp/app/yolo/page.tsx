@@ -4,15 +4,24 @@ import * as React from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
 import {Play, RotateCcw, X, Settings } from "lucide-react"
 import { GlowingEffect } from "@/components/ui/glowing-effect"
 import { FileUpload } from "@/components/ui/file-upload"
 import { Highlighter } from "@/components/ui/highlighter"
 
+interface YoloResult {
+  result?: {
+    data?: Array<{
+      url?: string;
+      [key: string]: unknown;
+    } | string>;
+  };
+  error?: string;
+}
+
 export default function YoloPage() {
   const [isLoading, setIsLoading] = React.useState(false)
-  const [results, setResults] = React.useState<any>(null)
+  const [results, setResults] = React.useState<YoloResult | null>(null)
   const [imageDataUrl, setImageDataUrl] = React.useState<string>("")
   const [threshold, setThreshold] = React.useState<number>(0.3)
   const [iou, setIou] = React.useState<number>(0.5)
@@ -33,8 +42,8 @@ export default function YoloPage() {
       })
       const json = await res.json()
       setResults(json)
-    } catch (e) {
-      setResults({ error: "Erreur lors de l'appel API" })
+    } catch {
+      setResults({ error: "Erreur lors de l&apos;appel API" })
     } finally {
       setIsLoading(false)
     }
@@ -175,7 +184,7 @@ export default function YoloPage() {
                     ) : (
                       <>
                         <Play className="mr-2 h-4 w-4" />
-                        Analyser l'image
+                        Analyser l&apos;image
                       </>
                     )}
                   </Button>
@@ -211,9 +220,9 @@ export default function YoloPage() {
                     <div className="flex justify-center">
                       <div className="max-w-2xl">
                         <p className="text-sm font-medium mb-3 text-center">Résultat de détection</p>
-                        {results.result.data[1]?.url && (
+                        {(results.result.data[1] as { url?: string })?.url && (
                           <img 
-                            src={results.result.data[1].url} 
+                            src={(results.result.data[1] as { url?: string }).url!} 
                             alt="annotated" 
                             className="w-full rounded-lg border" 
                           />
@@ -225,7 +234,7 @@ export default function YoloPage() {
                     {results.result.data[2] && (
                       <div className="space-y-4">
                         {(() => {
-                          const markdownText = results.result.data[2];
+                          const markdownText = results.result.data[2] as string;
                           
                           // Parse les données du markdown
                           const lines = markdownText.split('\n').filter((line: string) => line.trim());
@@ -239,8 +248,8 @@ export default function YoloPage() {
                             const countMatch = line.match(/\*\*(\d+)\s+objet\(s\)\s+détecté\(s\)\*\*/);
                             if (countMatch) detectedCount = parseInt(countMatch[1]);
                             
-                            // Temps d'inférence
-                            const timeMatch = line.match(/Temps d'inférence:\s*\*\*([^*]+)\*\*/);
+                            // Temps d&apos;inférence
+                            const timeMatch = line.match(/Temps d&apos;inférence:\s*\*\*([^*]+)\*\*/);
                             if (timeMatch) inferenceTime = timeMatch[1];
                             
                             // Confiance moyenne
@@ -269,7 +278,7 @@ export default function YoloPage() {
                               {inferenceTime && (
                                 <div className="text-center p-4 bg-muted/50 rounded-lg border">
                                   <div className="text-2xl font-bold mb-1">{inferenceTime}</div>
-                                  <div className="text-xs text-muted-foreground">Temps d'inférence</div>
+                                  <div className="text-xs text-muted-foreground">Temps d&apos;inférence</div>
                                 </div>
                               )}
                               
@@ -286,7 +295,7 @@ export default function YoloPage() {
                         
                         {/* Liste des objets détectés */}
                         {(() => {
-                          const markdownText = results.result.data[2];
+                          const markdownText = results.result.data[2] as string;
                           const lines = markdownText.split('\n').filter((line: string) => line.trim());
                           const detectedObjects: Array<{name: string, confidence: number}> = [];
                           
