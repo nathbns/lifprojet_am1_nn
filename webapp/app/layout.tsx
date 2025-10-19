@@ -17,6 +17,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "LIF Project - Test de Modèles IA",
   description: "Interface de test pour les modèles d'intelligence artificielle",
+  icons: {
+    icon: "/icon.svg",
+  },
 };
 
 export default function RootLayout({
@@ -29,17 +32,17 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <ThemeProvider
+              <ThemeProvider
           attribute="class"
           defaultTheme="system"
           enableSystem
           disableTransitionOnChange
         >
-          <div className="relative min-h-screen flex">
-            <Sidebar />
-            <main className="w-full h-full">{children}</main>
-          </div>
-        </ThemeProvider>
+              <div className="relative min-h-screen flex">
+                <Sidebar />
+                <main className="flex-1 ml-16">{children}</main>
+              </div>
+              </ThemeProvider>
       </body>
     </html>
   );

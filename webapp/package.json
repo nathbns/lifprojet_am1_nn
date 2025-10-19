@@ -37,6 +37,7 @@
     "@eslint/eslintrc": "^3",
     "@gradio/client": "^2.0.0-dev.0",
     "@tailwindcss/postcss": "^4",
+    "@types/mdx": "^2.0.13",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
