@@ -6,7 +6,8 @@
 - Entrainer 3H sur colab avec le GPU A100.
 
 **Pour l'essayer:** \
-Aller sur mon compte HF: https://huggingface.co/spaces/nathbns/yolo1_from_scratch
+Aller sur mon compte HF: https://huggingface.co/spaces/nathbns/yolo1_from_scratch \
+Ou bien directement aller sur le site qui est hebergé sur vercel : https://yoco-ochre.vercel.app
 
 ## Yolo Version 3
 En cours.
