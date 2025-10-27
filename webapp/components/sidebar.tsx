@@ -5,13 +5,14 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { FaChess, FaChessPawn, FaChessRook, FaChessKnight, FaChessBishop } from "react-icons/fa"
+import { FaChess, FaChessPawn, FaChessRook, FaChessKnight, FaChessBishop, FaChessQueen} from "react-icons/fa"
 
 // Icônes de pièces d'échecs pour la navigation
 const HomeIcon = () => <FaChessPawn className="w-5 h-5" />
 const YoloIcon = () => <FaChessRook className="w-5 h-5" />
-const DocsIcon = () => <FaChessKnight className="w-5 h-5" />
+const StatsIcon = () => <FaChessKnight className="w-5 h-5" />
 const ChessIcon = () => <FaChessBishop className="w-5 h-5" />
+const ConfigIcon = () => <FaChessQueen className="w-5 h-5" />
 
 
 const navigation = [
@@ -31,10 +32,15 @@ const navigation = [
     icon: ChessIcon,
   },
   {
-    name: "Docs",
+    name: "Stats",
     href: "/docs",
-    icon: DocsIcon,
+    icon: StatsIcon,
   },
+  {
+    name: "Labels",
+    href: "",
+    icon: ConfigIcon,
+  }
 ]
 
 export function Sidebar() {

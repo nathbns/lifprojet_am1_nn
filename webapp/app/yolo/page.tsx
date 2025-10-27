@@ -26,6 +26,7 @@ export default function YoloPage() {
   const [imageDataUrl, setImageDataUrl] = React.useState<string>("")
   const [threshold, setThreshold] = React.useState<number>(0.3)
   const [iou, setIou] = React.useState<number>(0.5)
+  const [selectedModel, setSelectedModel] = React.useState<"yolov1" | "yolov3">("yolov1")
 
   const handleTest = async () => {
     if (!imageDataUrl) return
@@ -39,9 +40,17 @@ export default function YoloPage() {
           confidence_threshold: threshold,
           iou_threshold: iou,
           show_confidence: true,
+          model: selectedModel,
         }),
       })
       const json = await res.json()
+      console.log("Résultats complets:", json)
+      console.log("Data:", json.result?.data)
+      if (json.result?.data) {
+        console.log("Stats (index 0):", json.result.data[0])
+        console.log("Stats (index 1):", json.result.data[1])
+        console.log("Stats (index 2):", json.result.data[2])
+      }
       setResults(json)
     } catch {
       setResults({ error: "Erreur lors de l&apos;appel API" })
@@ -73,7 +82,7 @@ export default function YoloPage() {
       <div className="max-w-6xl mx-auto px-8">
       <div className="mb-8 text-center">
         <h1 className="text-4xl font-bold mb-2">
-          Nos modeles{"    "}
+          Nos modèles{"    "}
           <Highlighter action="highlight" color="#15803d" padding={3} >
             YOLO
           </Highlighter>
@@ -82,7 +91,7 @@ export default function YoloPage() {
           <Highlighter action="underline" color="#15803d" padding={3} >
           Glissez-déposez
           </Highlighter>
-          {" "}une image, puis lancez la détection
+          {" "}une image, choisissez un modèle et lancez la détection
         </p>
       </div>
 
@@ -135,6 +144,41 @@ export default function YoloPage() {
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="space-y-4">
+                  {/* Sélecteur de modèle */}
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Modèle YOLO</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        onClick={() => setSelectedModel("yolov1")}
+                        className={`p-4 rounded-lg border-2 transition-all ${
+                          selectedModel === "yolov1"
+                            ? "border border-foreground"
+                            : "border-muted"
+                        }`}
+                      >
+                        <div className="text-center">
+                          <div className={`font-bold text-lg ${selectedModel === "yolov1" ? "text-foreground" : ""}`}>
+                            YOLOv1
+                          </div>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => setSelectedModel("yolov3")}
+                        className={`p-4 rounded-lg border-2 transition-all ${
+                          selectedModel === "yolov3"
+                            ? "border border-foreground"
+                            : "border-muted"
+                        }`}
+                      >
+                        <div className="text-center">
+                          <div className={`font-bold text-lg ${selectedModel === "yolov3" ? "text-foreground" : ""}`}>
+                            YOLOv3
+                          </div>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                  
                   <div>
                     <label className="text-sm font-medium mb-2 block">Seuil de confiance</label>
                     <div className="space-y-2">
@@ -214,7 +258,12 @@ export default function YoloPage() {
           <div className="relative">
             <Card>
               <CardHeader>
-                <CardTitle>Résultats de détection</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <span className={selectedModel === "yolov1" ? "text-foreground-600" : "text-foreground-600"}>
+                    {selectedModel === "yolov1" ? "YOLOv1" : "YOLOv3"}
+                  </span>
+                  {" "}- Résultats de détection
+                </CardTitle>
                 <CardDescription>Image annotée avec les objets détectés</CardDescription>
               </CardHeader>
               <CardContent>
@@ -224,23 +273,31 @@ export default function YoloPage() {
                     <div className="flex justify-center">
                       <div className="max-w-2xl">
                         <p className="text-sm font-medium mb-3 text-center">Résultat de détection</p>
-                        {(results.result.data[1] as { url?: string })?.url && (
-                          <Image 
-                            src={(results.result.data[1] as { url?: string }).url!} 
-                            alt="annotated" 
-                            width={640} 
-                            height={480} 
-                            className="w-full rounded-lg border" 
-                          />
-                        )}
+                        {(() => {
+                          // YOLOv3 retourne 2 éléments: [0]=image, [1]=stats
+                          // YOLOv1 retourne 3 éléments: [0]=?, [1]=image, [2]=stats
+                          const imageIndex = selectedModel === "yolov3" ? 0 : 1;
+                          const imageUrl = (results.result.data[imageIndex] as { url?: string })?.url;
+                          return imageUrl ? (
+                            <Image 
+                              src={imageUrl} 
+                              alt="annotated" 
+                              width={640} 
+                              height={480} 
+                              className="w-full rounded-lg border" 
+                            />
+                          ) : null;
+                        })()}
                       </div>
                     </div>
                     
                     {/* Stats de détection */}
-                    {results.result.data[2] && (
+                    {(() => {
+                      const statsIndex = selectedModel === "yolov3" ? 1 : 2;
+                      return results.result.data[statsIndex] && (
                       <div className="space-y-4">
                         {(() => {
-                          const markdownText = results.result.data[2] as string;
+                          const markdownText = results.result.data[statsIndex] as string;
                           
                           // Parse les données du markdown
                           const lines = markdownText.split('\n').filter((line: string) => line.trim());
@@ -301,7 +358,7 @@ export default function YoloPage() {
                         
                         {/* Liste des objets détectés */}
                         {(() => {
-                          const markdownText = results.result.data[2] as string;
+                          const markdownText = results.result.data[statsIndex] as string;
                           const lines = markdownText.split('\n').filter((line: string) => line.trim());
                           const detectedObjects: Array<{name: string, confidence: number}> = [];
                           
@@ -341,7 +398,8 @@ export default function YoloPage() {
                           return null;
                         })()}
                       </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 )}
               </CardContent>

@@ -9,6 +9,12 @@ const nextConfig: NextConfig = {
         port: '',
         pathname: '/gradio_api/file=/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'nathbns-yolo3-from-scratch.hf.space',
+        port: '',
+        pathname: '/gradio_api/file=/**',
+      },
     ],
   },
 };

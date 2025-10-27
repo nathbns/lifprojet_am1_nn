@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { imageDataUrl, confidence_threshold, iou_threshold, show_confidence } = body || {};
+    const { imageDataUrl, confidence_threshold, iou_threshold, show_confidence, model } = body || {};
     if (!imageDataUrl || typeof imageDataUrl !== "string") {
       return NextResponse.json(
         { error: "Champ 'imageDataUrl' requis (data URL base64)" },
@@ -19,6 +19,7 @@ export async function POST(req: Request) {
       confidence_threshold,
       iou_threshold,
       show_confidence,
+      model,
     });
     return NextResponse.json({ result });
   } catch (error: unknown) {

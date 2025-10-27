@@ -5,13 +5,14 @@ import { Chess } from "chess.js"
 import { Chessboard } from "react-chessboard"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { RotateCcw, Trophy, AlertCircle, Palette, Camera, Bot, X } from "lucide-react"
+import { RotateCcw, Trophy, AlertCircle, Palette, Camera, Bot, X, Scan, CheckCircle2, Loader2 } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { FileUpload } from "@/components/ui/file-upload"
 import { GlowingEffect } from "@/components/ui/glowing-effect"
 import { Highlighter } from "@/components/ui/highlighter"
 import type { Square } from "chess.js"
 import Image from "next/image"
+import { analyzeChessImage } from "@/lib/gradio"
 
 // Thèmes d'échiquier disponibles
 const boardThemes = {
@@ -73,6 +74,10 @@ export default function ChessPage() {
   const [boardTheme, setBoardTheme] = useState<keyof typeof boardThemes>("green")
   const [gameMode, setGameMode] = useState<"image" | "vs-computer">("image")
   const [imageDataUrl, setImageDataUrl] = useState<string>("")
+  const [isDetecting, setIsDetecting] = useState<boolean>(false)
+  const [detectedFen, setDetectedFen] = useState<string>("")
+  const [detectionError, setDetectionError] = useState<string>("")
+  const [manualFen, setManualFen] = useState<string>("")
 
   const currentTheme = useMemo(() => boardThemes[boardTheme], [boardTheme])
   const isGameOver = useMemo(() => game.isGameOver(), [game])
@@ -164,6 +169,61 @@ export default function ChessPage() {
   const handleFileUpload = (files: File[]) => {
     if (files.length > 0) {
       handleFileSelect(files[0])
+      setDetectedFen("")
+      setDetectionError("")
+    }
+  }
+
+  const handleDetectFen = async () => {
+    if (!imageDataUrl) return
+    
+    setIsDetecting(true)
+    setDetectionError("")
+    
+    try {
+      // Utiliser le modèle Gradio pour analyser l'échiquier
+      const result = await analyzeChessImage(imageDataUrl)
+      
+      if (result.fen) {
+        let cleanFen = result.fen.trim()
+        cleanFen = cleanFen.replace(/^✅\s*FEN:\s*/i, '') // Enlever "✅ FEN:"
+        cleanFen = cleanFen.replace(/^FEN:\s*/i, '') // Enlever "FEN:"
+        cleanFen = cleanFen.trim()
+        
+        // Mettre le FEN nettoyé directement dans l'input
+        setDetectedFen(cleanFen)
+        setManualFen(cleanFen)
+      } else {
+        setDetectionError("Aucun FEN n'a pu être détecté")
+      }
+    } catch (error) {
+      console.error("Erreur détection:", error)
+      setDetectionError(
+        error instanceof Error 
+          ? error.message 
+          : "Erreur lors de la détection de l'échiquier"
+      )
+    } finally {
+      setIsDetecting(false)
+    }
+  }
+
+  const handleContinueGame = () => {
+    if (!manualFen.trim()) return
+    
+    // Charger le FEN et basculer vers le mode IA
+    try {
+      const newGame = new Chess(manualFen.trim())
+      setGame(newGame)
+      updateGameStatus(newGame)
+      setMoveHistory([])
+      setCapturedPieces({ white: [], black: [] })
+      setDetectionError("")
+      // Basculer vers le mode IA
+      setGameMode("vs-computer")
+    } catch (err) {
+      console.error("Erreur FEN:", err)
+      setDetectionError("FEN invalide: " + (err as Error).message)
     }
   }
 
@@ -209,91 +269,109 @@ export default function ChessPage() {
 
         {/* Content based on mode */}
         {gameMode === "image" ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Upload Section */}
-            <div className="space-y-6">
-              <div className="relative">
-                <Card>
-                  <CardContent className="p-6">
-                    {!imageDataUrl ? (
-                      <FileUpload onChange={handleFileUpload} />
-                    ) : (
-                      <div className="space-y-4">
-                        <div className="relative inline-block">
-                          <Image 
-                            src={imageDataUrl} 
-                            alt="preview" 
-                            width={320}
-                            height={240}
-                            className="max-h-80 mx-auto rounded-lg" 
-                          />
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            className="absolute -top-2 -right-2 rounded-full h-8 w-8 p-0"
-                            onClick={() => setImageDataUrl("")}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                        <p className="text-sm text-muted-foreground text-center">Image prête pour l&apos;analyse</p>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-                <GlowingEffect className="rounded-xl" borderWidth={1} />
-              </div>
-            </div>
-
-            {/* Settings */}
+          <div className="max-w-2xl mx-auto">
+            {/* Upload & Detection Section */}
             <div className="space-y-6">
               <div className="relative">
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                      <Palette className="h-5 w-5" />
-                      Paramètres
+                      <Camera className="h-5 w-5" />
+                      Photo d&apos;Échiquier
                     </CardTitle>
-                    <CardDescription>Personnalisez votre échiquier</CardDescription>
+                    <CardDescription>Téléchargez une photo réelle et détectez la position FEN</CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Thème Échiquier</label>
-                      <Select 
-                        value={boardTheme} 
-                        onValueChange={(value) => setBoardTheme(value as keyof typeof boardThemes)}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Object.entries(boardThemes).map(([key, theme]) => (
-                            <SelectItem key={key} value={key}>
-                              {theme.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* Aperçu du thème */}
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Aperçu</label>
-                      <div className="grid grid-cols-4 gap-0 h-20 rounded-md overflow-hidden border-2 border-border">
-                        {[0, 1, 2, 3, 0, 1, 2, 3].map((_, idx) => (
-                          <div
-                            key={idx}
-                            style={{
-                              backgroundColor: idx % 2 === Math.floor(idx / 4) % 2 
-                                ? currentTheme.lightSquare 
-                                : currentTheme.darkSquare
-                            }}
+                  <CardContent className="p-6 space-y-4">
+                    {!imageDataUrl ? (
+                      <FileUpload onChange={handleFileUpload} />
+                    ) : (
+                      <>
+                        <div className="relative inline-block w-full">
+                          <Image 
+                            src={imageDataUrl} 
+                            alt="preview" 
+                            width={400}
+                            height={300}
+                            className="max-h-80 w-full object-contain mx-auto rounded-lg" 
                           />
-                        ))}
-                      </div>
-                    </div>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            className="absolute -top-2 -right-2 rounded-full h-8 w-8 p-0"
+                            onClick={() => {
+                              setImageDataUrl("")
+                              setDetectedFen("")
+                              setDetectionError("")
+                              setManualFen("")
+                            }}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        
+                        <Button 
+                          onClick={handleDetectFen}
+                          disabled={isDetecting}
+                          className="w-full"
+                          size="lg"
+                        >
+                          {isDetecting ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Analyse en cours...
+                            </>
+                          ) : (
+                            <>
+                              <Scan className="mr-2 h-4 w-4" />
+                              Détecter l&apos;échiquier
+                            </>
+                          )}
+                        </Button>
+                        
+                        {detectionError && (
+                          <div className="p-3 rounded-lg bg-red-500/20 text-red-700 dark:text-red-300 text-sm">
+                            <AlertCircle className="inline h-4 w-4 mr-2" />
+                            {detectionError}
+                          </div>
+                        )}
+                        
+                        {detectedFen && (
+                          <div className="p-3 rounded-lg bg-green-500/20 text-green-700 dark:text-green-300">
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="h-4 w-4" />
+                              <span className="font-semibold text-sm">FEN détecté !</span>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Input manuel pour FEN */}
+                        <div className="space-y-2 pt-2">
+                          <label className="text-sm font-medium">
+                            {detectedFen ? "FEN détecté (modifiable) :" : "Ou entrez un FEN manuellement :"}
+                          </label>
+                          <input
+                            type="text"
+                            value={manualFen}
+                            onChange={(e) => setManualFen(e.target.value)}
+                            placeholder="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+                            className="w-full px-3 py-2 text-sm border rounded-md bg-background font-mono"
+                          />
+                          
+                          <Button 
+                            onClick={handleContinueGame}
+                            disabled={!manualFen.trim()}
+                            className="w-full"
+                            size="lg"
+                          >
+                            <Bot className="mr-2 h-4 w-4" />
+                            Continuer la partie avec l&apos;IA
+                          </Button>
+                        </div>
+                      </>
+                    )}
                   </CardContent>
                 </Card>
+                <GlowingEffect className="rounded-xl" borderWidth={1} />
               </div>
             </div>
           </div>
