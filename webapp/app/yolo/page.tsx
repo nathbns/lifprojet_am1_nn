@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import {Play, RotateCcw, X, Settings } from "lucide-react"
-import { GlowingEffect } from "@/components/ui/glowing-effect"
 import { FileUpload } from "@/components/ui/file-upload"
 import { Highlighter } from "@/components/ui/highlighter"
 import Image from "next/image"
@@ -83,12 +82,12 @@ export default function YoloPage() {
       <div className="mb-8 text-center">
         <h1 className="text-4xl font-bold mb-2">
           Nos modèles{"    "}
-          <Highlighter action="highlight" color="#15803d" padding={3} >
-            YOLO
+          <Highlighter action="highlight" color="#c9c9c9" padding={3} >
+            <p className="text-background">YOLO</p>
           </Highlighter>
           </h1>
         <p className="text-muted-foreground">
-          <Highlighter action="underline" color="#15803d" padding={3} >
+          <Highlighter action="underline" color="#c9c9c9" padding={3} >
           Glissez-déposez
           </Highlighter>
           {" "}une image, choisissez un modèle et lancez la détection
@@ -111,13 +110,13 @@ export default function YoloPage() {
                         alt="preview" 
                         width={800} 
                         height={600} 
-                        className="max-h-80 w-auto h-auto mx-auto rounded-lg" 
+                        className="max-h-80 w-auto h-auto mx-auto" 
                         style={{ objectFit: 'contain' }}
                       />
                       <Button
                         variant="destructive"
                         size="sm"
-                        className="absolute -top-2 -right-2 rounded-full h-8 w-8 p-0"
+                        className="absolute -top-2 -right-2 h-8 w-8 p-0"
                         onClick={() => setImageDataUrl("")}
                       >
                         <X className="h-2 w-2" />
@@ -127,7 +126,6 @@ export default function YoloPage() {
                 )}
               </CardContent>
             </Card>
-            <GlowingEffect className="rounded-xl" borderWidth={1} />
           </div>
         </div>
 
@@ -150,7 +148,7 @@ export default function YoloPage() {
                     <div className="grid grid-cols-2 gap-3">
                       <button
                         onClick={() => setSelectedModel("yolov1")}
-                        className={`p-4 rounded-lg border-2 transition-all ${
+                        className={`p-4 border-2 transition-all ${
                           selectedModel === "yolov1"
                             ? "border border-foreground"
                             : "border-muted"
@@ -164,7 +162,7 @@ export default function YoloPage() {
                       </button>
                       <button
                         onClick={() => setSelectedModel("yolov3")}
-                        className={`p-4 rounded-lg border-2 transition-all ${
+                        className={`p-4 border-2 transition-all ${
                           selectedModel === "yolov3"
                             ? "border border-foreground"
                             : "border-muted"
@@ -247,7 +245,6 @@ export default function YoloPage() {
                 </div>
               </CardContent>
             </Card>
-            <GlowingEffect className="rounded-xl" borderWidth={1} />
           </div>
         </div>
       </div>
@@ -258,11 +255,8 @@ export default function YoloPage() {
           <div className="relative">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <span className={selectedModel === "yolov1" ? "text-foreground-600" : "text-foreground-600"}>
-                    {selectedModel === "yolov1" ? "YOLOv1" : "YOLOv3"}
-                  </span>
-                  {" "}- Résultats de détection
+                <CardTitle>
+                  Résultats de détection
                 </CardTitle>
                 <CardDescription>Image annotée avec les objets détectés</CardDescription>
               </CardHeader>
@@ -284,7 +278,7 @@ export default function YoloPage() {
                               alt="annotated" 
                               width={640} 
                               height={480} 
-                              className="w-full rounded-lg border" 
+                              className="w-full border" 
                             />
                           ) : null;
                         })()}
@@ -294,52 +288,130 @@ export default function YoloPage() {
                     {/* Stats de détection */}
                     {(() => {
                       const statsIndex = selectedModel === "yolov3" ? 1 : 2;
+                      const isYOLOv1 = selectedModel === "yolov1";
                       return results.result.data[statsIndex] && (
                       <div className="space-y-4">
                         {(() => {
-                          const markdownText = results.result.data[statsIndex] as string;
+                          const dataItem = results.result.data[statsIndex];
+                          // Vérifier que l'élément est une chaîne de caractères
+                          if (typeof dataItem !== 'string') {
+                            return null;
+                          }
+                          const markdownText = dataItem;
                           
                           // Parse les données du markdown
                           const lines = markdownText.split('\n').filter((line: string) => line.trim());
                           let detectedCount = 0;
                           let inferenceTime = '';
                           let avgConfidence = '';
-                          const detectedObjects: Array<{name: string, confidence: number}> = [];
+                          
+                          // Stocker toutes les détections individuelles (même si du même type)
+                          const detectedObjects: Array<{name: string, confidence: number, index?: number}> = [];
                           
                           lines.forEach((line: string) => {
                             // Nombre d'objets détectés
-                            const countMatch = line.match(/\*\*(\d+)\s+objet\(s\)\s+détecté\(s\)\*\*/);
+                            const countMatch = line.match(/\*\*(\d+)\s+objet\(s\)\s+détecté\(s\)\*\*/i);
                             if (countMatch) detectedCount = parseInt(countMatch[1]);
                             
                             // Temps d&apos;inférence
-                            const timeMatch = line.match(/Temps d&apos;inférence:\s*\*\*([^*]+)\*\*/);
+                            const timeMatch = line.match(/Temps d&apos;inférence:\s*\*\*([^*]+)\*\*/i);
                             if (timeMatch) inferenceTime = timeMatch[1];
                             
                             // Confiance moyenne
-                            const confMatch = line.match(/Confiance moyenne:\s*\*\*([^*]+)\*\*/);
+                            const confMatch = line.match(/Confiance moyenne:\s*\*\*([^*]+)\*\*/i);
                             if (confMatch) avgConfidence = confMatch[1];
                             
-                            // Objets individuels avec confiance
-                            const objMatch = line.match(/(\d+)\.\s*([^:]+):\s*([\d.]+)%/);
-                            if (objMatch) {
+                            // Ignorer les lignes de statistiques générales
+                            if (line.match(/confiance|temps|objet|détecté|moyenne|inférence/i)) {
+                              return;
+                            }
+                            
+                            // Pour YOLOv1 seulement: ignorer les lignes avec des guillemets ou des tirets (format suspect)
+                            if (isYOLOv1 && (line.match(/^[\s-]*["']/) || line.match(/["'].*:/))) {
+                              return;
+                            }
+                            
+                            // Objets individuels avec confiance (format: "1. cat: 83.5%" ou "cat: 0.83")
+                            // Prioriser le format avec numéro car plus fiable
+                            const objMatchWithNum = line.match(/(\d+)\.\s*([^:]+):\s*([\d.]+)%?/);
+                            let name: string | undefined;
+                            let confidenceStr: string | undefined;
+                            let detectionIndex: number | undefined;
+                            
+                            if (objMatchWithNum) {
+                              // Format avec numéro: "1. cat: 83.5%"
+                              detectionIndex = parseInt(objMatchWithNum[1]);
+                              name = objMatchWithNum[2]?.trim().toLowerCase();
+                              confidenceStr = objMatchWithNum[3];
+                            } else {
+                              // Format sans numéro: "cat: 0.83" ou "cat: 83.5%"
+                              // Pour YOLOv1: ignorer si la ligne commence par un tiret ou contient des guillemets
+                              // Pour YOLOv3: être plus permissif
+                              const objMatchWithoutNum = isYOLOv1 
+                                ? line.match(/^([^:"'\s-]+):\s*([\d.]+)%?/)
+                                : line.match(/([^:]+):\s*([\d.]+)%?/);
+                              if (objMatchWithoutNum) {
+                                name = objMatchWithoutNum[1]?.trim().toLowerCase();
+                                confidenceStr = objMatchWithoutNum[2];
+                              }
+                            }
+                            
+                            if (name && confidenceStr) {
+                              // Ignorer les noms qui ressemblent à des mots-clés de statistiques
+                              if (name.match(/^(confiance|temps|objet|détecté|moyenne|inférence)$/i)) {
+                                return;
+                              }
+                              
+                              // Si la confiance est entre 0 et 1 (format 0.83), multiplier par 100
+                              let confidence = parseFloat(confidenceStr);
+                              if (confidence <= 1 && confidence > 0) {
+                                confidence = confidence * 100;
+                              }
+                              
+                              // Filtrer les confiances invalides
+                              if (confidence <= 0 || confidence > 100 || !isFinite(confidence)) {
+                                return;
+                              }
+                              
+                              // Pour YOLOv1 seulement: ignorer les confiances exactement à 100% si elles ne viennent pas du format avec numéro
+                              // Pour YOLOv3: accepter toutes les confiances valides
+                              if (isYOLOv1 && confidence === 100 && !objMatchWithNum) {
+                                return;
+                              }
+                              
+                              // Ajouter cette détection individuelle (même si on a déjà une détection du même type)
                               detectedObjects.push({
-                                name: objMatch[2].trim(),
-                                confidence: parseFloat(objMatch[3])
+                                name: name,
+                                confidence: confidence,
+                                index: detectionIndex
                               });
                             }
                           });
                           
+                          // Trier par confiance décroissante (ou par index si disponible)
+                          detectedObjects.sort((a, b) => {
+                            if (a.index !== undefined && b.index !== undefined) {
+                              return a.index - b.index; // Trier par index si disponible
+                            }
+                            return b.confidence - a.confidence; // Sinon par confiance décroissante
+                          });
+                          
+                          // Si le nombre d'objets n'a pas été trouvé via regex, utiliser la longueur de la liste
+                          if (detectedCount === 0 && detectedObjects.length > 0) {
+                            detectedCount = detectedObjects.length;
+                          }
+                          
                           return (
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                               {/* Nombre d'objets */}
-                              <div className="text-center p-4 bg-muted/50 rounded-lg border">
+                              <div className="text-center p-4 bg-muted/50 border">
                                 <div className="text-2xl font-bold text-primary mb-1">{detectedCount}</div>
                                 <div className="text-xs text-muted-foreground">Objet(s) détecté(s)</div>
                               </div>
                               
                               {/* Temps d'inférence */}
                               {inferenceTime && (
-                                <div className="text-center p-4 bg-muted/50 rounded-lg border">
+                                <div className="text-center p-4 bg-muted/50 border">
                                   <div className="text-2xl font-bold mb-1">{inferenceTime}</div>
                                   <div className="text-xs text-muted-foreground">Temps d&apos;inférence</div>
                                 </div>
@@ -347,7 +419,7 @@ export default function YoloPage() {
                               
                               {/* Confiance moyenne */}
                               {avgConfidence && (
-                                <div className="text-center p-4 bg-muted/50 rounded-lg border">
+                                <div className="text-center p-4 bg-muted/50 border">
                                   <div className="text-2xl font-bold mb-1">{avgConfidence}</div>
                                   <div className="text-xs text-muted-foreground">Confiance moyenne</div>
                                 </div>
@@ -358,18 +430,91 @@ export default function YoloPage() {
                         
                         {/* Liste des objets détectés */}
                         {(() => {
-                          const markdownText = results.result.data[statsIndex] as string;
+                          const dataItem = results.result.data[statsIndex];
+                          // Vérifier que l'élément est une chaîne de caractères
+                          if (typeof dataItem !== 'string') {
+                            return null;
+                          }
+                          const markdownText = dataItem;
                           const lines = markdownText.split('\n').filter((line: string) => line.trim());
-                          const detectedObjects: Array<{name: string, confidence: number}> = [];
+                          
+                          // Stocker toutes les détections individuelles (même si du même type)
+                          const detectedObjects: Array<{name: string, confidence: number, index?: number}> = [];
                           
                           lines.forEach((line: string) => {
-                            const objMatch = line.match(/(\d+)\.\s*([^:]+):\s*([\d.]+)%/);
-                            if (objMatch) {
+                            // Ignorer les lignes de statistiques générales
+                            if (line.match(/confiance|temps|objet|détecté|moyenne|inférence/i)) {
+                              return;
+                            }
+                            
+                            // Pour YOLOv1 seulement: ignorer les lignes avec des guillemets ou des tirets (format suspect)
+                            if (isYOLOv1 && (line.match(/^[\s-]*["']/) || line.match(/["'].*:/))) {
+                              return;
+                            }
+                            
+                            // Objets individuels avec confiance (format: "1. cat: 83.5%" ou "cat: 0.83")
+                            // Prioriser le format avec numéro car plus fiable
+                            const objMatchWithNum = line.match(/(\d+)\.\s*([^:]+):\s*([\d.]+)%?/);
+                            let name: string | undefined;
+                            let confidenceStr: string | undefined;
+                            let detectionIndex: number | undefined;
+                            
+                            if (objMatchWithNum) {
+                              // Format avec numéro: "1. cat: 83.5%"
+                              detectionIndex = parseInt(objMatchWithNum[1]);
+                              name = objMatchWithNum[2]?.trim().toLowerCase();
+                              confidenceStr = objMatchWithNum[3];
+                            } else {
+                              // Format sans numéro: "cat: 0.83" ou "cat: 83.5%"
+                              // Pour YOLOv1: ignorer si la ligne commence par un tiret ou contient des guillemets
+                              // Pour YOLOv3: être plus permissif
+                              const objMatchWithoutNum = isYOLOv1 
+                                ? line.match(/^([^:"'\s-]+):\s*([\d.]+)%?/)
+                                : line.match(/([^:]+):\s*([\d.]+)%?/);
+                              if (objMatchWithoutNum) {
+                                name = objMatchWithoutNum[1]?.trim().toLowerCase();
+                                confidenceStr = objMatchWithoutNum[2];
+                              }
+                            }
+                            
+                            if (name && confidenceStr) {
+                              // Ignorer les noms qui ressemblent à des mots-clés de statistiques
+                              if (name.match(/^(confiance|temps|objet|détecté|moyenne|inférence)$/i)) {
+                                return;
+                              }
+                              
+                              // Si la confiance est entre 0 et 1 (format 0.83), multiplier par 100
+                              let confidence = parseFloat(confidenceStr);
+                              if (confidence <= 1 && confidence > 0) {
+                                confidence = confidence * 100;
+                              }
+                              
+                              // Filtrer les confiances invalides
+                              if (confidence <= 0 || confidence > 100 || !isFinite(confidence)) {
+                                return;
+                              }
+                              
+                              // Pour YOLOv1 seulement: ignorer les confiances exactement à 100% si elles ne viennent pas du format avec numéro
+                              // Pour YOLOv3: accepter toutes les confiances valides
+                              if (isYOLOv1 && confidence === 100 && !objMatchWithNum) {
+                                return;
+                              }
+                              
+                              // Ajouter cette détection individuelle (même si on a déjà une détection du même type)
                               detectedObjects.push({
-                                name: objMatch[2].trim(),
-                                confidence: parseFloat(objMatch[3])
+                                name: name,
+                                confidence: confidence,
+                                index: detectionIndex
                               });
                             }
+                          });
+                          
+                          // Trier par confiance décroissante (ou par index si disponible)
+                          detectedObjects.sort((a, b) => {
+                            if (a.index !== undefined && b.index !== undefined) {
+                              return a.index - b.index; // Trier par index si disponible
+                            }
+                            return b.confidence - a.confidence; // Sinon par confiance décroissante
                           });
                           
                           if (detectedObjects.length > 0) {
@@ -378,12 +523,12 @@ export default function YoloPage() {
                                 <h4 className="font-semibold text-sm">Objets détectés</h4>
                                 <div className="space-y-2">
                                   {detectedObjects.map((obj, index) => (
-                                    <div key={index} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg border">
+                                    <div key={index} className="flex items-center justify-between p-3 bg-muted/50 border">
                                       <span className="text-sm font-medium capitalize">{obj.name}</span>
                                       <div className="flex items-center gap-3">
-                                        <div className="w-24 bg-muted rounded-full h-2">
+                                        <div className="w-24 bg-muted h-2">
                                           <div 
-                                            className="bg-primary h-2 rounded-full transition-all duration-500" 
+                                            className="bg-primary h-2 transition-all duration-500" 
                                             style={{ width: `${obj.confidence}%` }}
                                           ></div>
                                         </div>
@@ -404,7 +549,6 @@ export default function YoloPage() {
                 )}
               </CardContent>
             </Card>
-            <GlowingEffect className="rounded-xl" borderWidth={1} />
           </div>
         </div>
       )}
@@ -412,5 +556,8 @@ export default function YoloPage() {
     </div>
   )
 }
+
+
+
 
 

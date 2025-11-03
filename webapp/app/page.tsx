@@ -4,7 +4,6 @@ import { FlickeringGrid } from "@/components/ui/flickering-grid-hero";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { GlowingEffect } from "@/components/ui/glowing-effect-total"
 
 
 // SVG du texte YOCO encodé en base64
@@ -90,13 +89,13 @@ export default function Home() {
   };
 
   return (
-    <div className="flex w-full h-full justify-center items-center">
+    <div className="flex w-full min-h-screen justify-center items-center px-4 sm:px-6 md:px-8">
       <FlickeringGrid
-        className="absolute inset-0 z-0 h-full w-full [mask-image:radial-gradient(1000px_circle_at_center,white,transparent)]"
+        className="absolute inset-0 z-0 h-full w-full [mask-image:radial-gradient(400px_circle_at_center,white,transparent)] sm:[mask-image:radial-gradient(600px_circle_at_center,white,transparent)] md:[mask-image:radial-gradient(800px_circle_at_center,white,transparent)] lg:[mask-image:radial-gradient(1000px_circle_at_center,white,transparent)]"
         {...GRID_CONFIG.background}
       />
       <div 
-        className="absolute inset-0 z-0 translate-y-[2vh]" 
+        className="absolute inset-0 z-0 -translate-y-[8vh] sm:-translate-y-[4vh] md:translate-y-[2vh]" 
         style={{
           ...maskStyle,
           animation: 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
@@ -104,20 +103,27 @@ export default function Home() {
       >
         <FlickeringGrid {...GRID_CONFIG.logo} />
       </div>
-      <div className="absolute z-10 flex flex-col items-center gap-8 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 mt-40">
-        <p className="opacity-70 text-base text-center max-w-2xl leading-relaxed">
+      <div className="absolute z-10 flex flex-col items-center gap-4 sm:gap-6 md:gap-8 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 mt-20 sm:mt-32 md:mt-40 w-full px-4 sm:px-6 md:px-8">
+        <p className="opacity-70 text-sm sm:text-base md:text-lg text-center max-w-2xl leading-relaxed pt-4 sm:pt-6 md:pt-10 px-4">
           From building from scratch Yolo v1 to Yolo v3 to YOCO (You Only Chess Once)!
         </p>
-        <div className="relative inline-block">
-          <Link href="/yolo" className="block">
+        <div className="relative inline-flex flex-col sm:flex-row gap-3 sm:gap-4 md:gap-6 w-full sm:w-auto">
+          <Link href="/yolo" className="w-full sm:w-auto">
             <Button
               variant="outline"
-              className="relative z-10 rounded-full px-8 py-4 bg-background/70 backdrop-blur border border-[var(--border)] text-foreground hover:bg-background/80 transition-all duration-200"
+              className="relative rounded-none z-10 w-full sm:w-auto px-8 sm:px-12 md:px-16 lg:px-20 py-3 sm:py-4 bg-background/70 backdrop-blur border text-foreground hover:bg-background/80 transition-all duration-200 text-sm sm:text-base"
             >
-              Yolov1
+              Yolo
             </Button>
           </Link>
-          <GlowingEffect className="rounded-full" />
+          <Link href="/chess" className="w-full sm:w-auto">
+            <Button
+              variant="outline"
+              className="relative rounded-none z-10 w-full sm:w-auto px-8 sm:px-12 md:px-16 lg:px-20 py-3 sm:py-4 bg-background/70 backdrop-blur border text-foreground hover:bg-background/80 transition-all duration-200 text-sm sm:text-base"
+            >
+              Yoco
+            </Button>
+          </Link>
         </div>
       </div>
     </div>

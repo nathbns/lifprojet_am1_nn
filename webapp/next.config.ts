@@ -15,6 +15,18 @@ const nextConfig: NextConfig = {
         port: '',
         pathname: '/gradio_api/file=/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'nathbns-preprocess-yoco.hf.space',
+        port: '',
+        pathname: '/gradio_api/file=/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'lichess1.org',
+        port: '',
+        pathname: '/assets/**',
+      },
     ],
   },
 };

@@ -7,6 +7,39 @@ export type ChessFenResult = {
   boardHtml: string;
 };
 
+/**
+ * Convertit une URL (data URL ou HTTP) en File
+ */
+async function urlToFile(url: string, filename: string = "image.jpg"): Promise<File> {
+  // Vérifier que url est bien une chaîne
+  if (typeof url !== 'string') {
+    throw new Error(`URL invalide: attendu une chaîne, reçu ${typeof url}`);
+  }
+  
+  // Si c'est un data URL
+  const dataUrlMatch = url.match(/^data:(.*?);base64,(.*)$/);
+  if (dataUrlMatch) {
+    const mimeType = dataUrlMatch[1];
+    const base64 = dataUrlMatch[2];
+    // Convertir base64 en blob pour le navigateur
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: mimeType });
+    const fileExt = mimeType.split("/")[1] || "jpg";
+    return new File([blob], `${filename}.${fileExt}`, { type: mimeType });
+  }
+  
+  // Si c'est une URL HTTP, télécharger l'image
+  const response = await fetch(url);
+  const blob = await response.blob();
+  const contentType = response.headers.get("content-type") || "image/jpeg";
+  const fileExt = contentType.split("/")[1] || "jpg";
+  return new File([blob], `${filename}.${fileExt}`, { type: contentType });
+}
+
 export async function predictYoloFromSpace(
   dataUrlImage: string,
   options?: { 
@@ -19,16 +52,7 @@ export async function predictYoloFromSpace(
   const model = options?.model || "yolov1";
   
   // Extraire le mime/type et construire un File nommé pour conserver l'extension
-  const matches = dataUrlImage.match(/^data:(.*?);base64,(.*)$/);
-  if (!matches) {
-    throw new Error("Image invalide: format data URL attendu");
-  }
-  const mimeType = matches[1];
-  const fileExt = mimeType.split("/")[1] || "jpg";
-  const base64 = matches[2];
-  const buffer = Buffer.from(base64, "base64");
-  const blob = new Blob([buffer], { type: mimeType });
-  const file = new File([blob], `input.${fileExt}`, { type: mimeType });
+  const file = await urlToFile(dataUrlImage, "input");
 
   // Appeler le modèle sélectionné
   if (model === "yolov3") {
@@ -72,19 +96,10 @@ async function predictYoloV3(
 /**
  * Analyse une image d'échiquier et retourne le FEN détecté
  * Utilise le modèle nathbns/yoco_first_version
+ * Accepte un data URL ou une URL HTTP
  */
-export async function analyzeChessImage(dataUrlImage: string): Promise<ChessFenResult> {
-  // Extraire le mime/type et construire un File
-  const matches = dataUrlImage.match(/^data:(.*?);base64,(.*)$/);
-  if (!matches) {
-    throw new Error("Image invalide: format data URL attendu");
-  }
-  const mimeType = matches[1];
-  const fileExt = mimeType.split("/")[1] || "jpg";
-  const base64 = matches[2];
-  const buffer = Buffer.from(base64, "base64");
-  const blob = new Blob([buffer], { type: mimeType });
-  const file = new File([blob], `chessboard.${fileExt}`, { type: mimeType });
+export async function analyzeChessImage(imageUrl: string): Promise<ChessFenResult> {
+  const file = await urlToFile(imageUrl, "chessboard");
 
   const client = await Client.connect("nathbns/yoco_first_version");
   const result = await client.predict("/analyze_chess_image", {
@@ -100,4 +115,32 @@ export async function analyzeChessImage(dataUrlImage: string): Promise<ChessFenR
   };
 }
 
+/**
+ * Préprocesse une image d'échiquier
+ * Utilise le modèle nathbns/preprocess_yoco
+ */
+export async function preprocessChessImage(dataUrlImage: string): Promise<string> {
+  const file = await urlToFile(dataUrlImage, "chessboard");
 
+  const client = await Client.connect("nathbns/preprocess_yoco");
+  const result = await client.predict("/process_image", {
+    image: file,
+  } as Record<string, unknown>);
+
+  // Le résultat Gradio a cette structure :
+  // result.data = [ { url: "...", path: "...", orig_name: "...", meta: {...} } ]
+  let preprocessedImageUrl: string | undefined;
+  
+  if (result.data && Array.isArray(result.data) && result.data.length > 0) {
+    const firstItem = result.data[0] as { url?: string; path?: string; [key: string]: unknown };
+    // L'URL est dans la propriété 'url' de l'objet
+    preprocessedImageUrl = firstItem?.url || firstItem?.path;
+  }
+  
+  if (!preprocessedImageUrl || typeof preprocessedImageUrl !== 'string') {
+    console.error("Format de réponse inattendu:", result);
+    throw new Error("Format de réponse invalide de l'API de preprocessing");
+  }
+  
+  return preprocessedImageUrl;
+}
