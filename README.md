@@ -22,7 +22,8 @@ La **dataset** est publié sur huggingface (Ne pas hesiter a liker, déjà **18 
 - Sur le space HuggingFace: https://huggingface.co/spaces/nathbns/yoco_first_version
 (Par ailleurs j'ai aussi fais un space pour visualiser le preprocess de l'image avant la detection: https://huggingface.co/spaces/nathbns/preprocess_yoco)
 
-# Pour lancer l'application web
+## Application Web utilisant le framework Next.js.
+### Pour lancer l'application web
 prerequis: installer bun
 ```bash
 cd webapp && bun i 

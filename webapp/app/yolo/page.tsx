@@ -8,6 +8,7 @@ import {Play, RotateCcw, X, Settings } from "lucide-react"
 import { FileUpload } from "@/components/ui/file-upload"
 import { Highlighter } from "@/components/ui/highlighter"
 import Image from "next/image"
+import { predictYoloFromSpace } from "@/lib/gradio"
 
 interface YoloResult {
   result?: {
@@ -31,28 +32,25 @@ export default function YoloPage() {
     if (!imageDataUrl) return
     setIsLoading(true)
     try {
-      const res = await fetch("/api/yolo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          imageDataUrl,
-          confidence_threshold: threshold,
-          iou_threshold: iou,
-          show_confidence: true,
-          model: selectedModel,
-        }),
+      // Appel direct Gradio côté client (évite la limite de taille Vercel)
+      const result = await predictYoloFromSpace(imageDataUrl, {
+        confidence_threshold: threshold,
+        iou_threshold: iou,
+        show_confidence: true,
+        model: selectedModel,
       })
-      const json = await res.json()
-      console.log("Résultats complets:", json)
-      console.log("Data:", json.result?.data)
-      if (json.result?.data) {
-        console.log("Stats (index 0):", json.result.data[0])
-        console.log("Stats (index 1):", json.result.data[1])
-        console.log("Stats (index 2):", json.result.data[2])
+      console.log("Résultats complets:", result)
+      const resultData = result as { data?: Array<unknown> }
+      console.log("Data:", resultData?.data)
+      if (resultData?.data) {
+        console.log("Stats (index 0):", resultData.data[0])
+        console.log("Stats (index 1):", resultData.data[1])
+        console.log("Stats (index 2):", resultData.data[2])
       }
-      setResults(json)
-    } catch {
-      setResults({ error: "Erreur lors de l&apos;appel API" })
+      setResults({ result: resultData as YoloResult['result'] })
+    } catch (error) {
+      console.error("Erreur YOLO:", error)
+      setResults({ error: error instanceof Error ? error.message : "Erreur lors de l&apos;appel API" })
     } finally {
       setIsLoading(false)
     }

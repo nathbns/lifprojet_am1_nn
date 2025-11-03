@@ -9,6 +9,7 @@ export type ChessFenResult = {
 
 /**
  * Convertit une URL (data URL ou HTTP) en File
+ * Compatible avec Node.js (server-side) et navigateur (client-side)
  */
 async function urlToFile(url: string, filename: string = "image.jpg"): Promise<File> {
   // Vérifier que url est bien une chaîne
@@ -21,19 +22,41 @@ async function urlToFile(url: string, filename: string = "image.jpg"): Promise<F
   if (dataUrlMatch) {
     const mimeType = dataUrlMatch[1];
     const base64 = dataUrlMatch[2];
-    // Convertir base64 en blob pour le navigateur
-    const binaryString = atob(base64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
+    
+    // Vérifier si on est dans Node.js (server-side) ou navigateur (client-side)
+    const isNode = typeof process !== 'undefined' && process.versions != null && process.versions.node != null;
+    
+    let buffer: Uint8Array;
+    
+    if (isNode) {
+      // Node.js: utiliser Buffer puis convertir en Uint8Array pour compatibilité
+      const nodeBuffer = Buffer.from(base64, 'base64');
+      buffer = new Uint8Array(nodeBuffer);
+    } else {
+      // Navigateur: utiliser atob (API navigateur)
+      if (typeof atob === 'undefined') {
+        throw new Error('atob is not available. This code should only run in the browser.');
+      }
+      const binaryString = atob(base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      buffer = bytes;
     }
-    const blob = new Blob([bytes], { type: mimeType });
+    
+    // Créer un Blob puis un File (fonctionne dans Node.js 18+ et navigateur)
+    // Utiliser une assertion de type pour éviter les problèmes de typage TypeScript
+    const blob = new Blob([buffer as BlobPart], { type: mimeType });
     const fileExt = mimeType.split("/")[1] || "jpg";
     return new File([blob], `${filename}.${fileExt}`, { type: mimeType });
   }
   
   // Si c'est une URL HTTP, télécharger l'image
   const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Erreur lors du téléchargement de l'image: ${response.status} ${response.statusText}`);
+  }
   const blob = await response.blob();
   const contentType = response.headers.get("content-type") || "image/jpeg";
   const fileExt = contentType.split("/")[1] || "jpg";

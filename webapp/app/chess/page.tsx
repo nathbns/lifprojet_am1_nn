@@ -12,6 +12,7 @@ import { Highlighter } from "@/components/ui/highlighter"
 import type { Square } from "chess.js"
 import Image from "next/image"
 import { User } from "lucide-react"
+import { analyzeChessImage, preprocessChessImage } from "@/lib/gradio"
 
 // Fonction helper pour obtenir l'élément JSX d'une pièce capturée
 const getPieceSymbol = (piece: string, size: number = 20): React.ReactElement => {
@@ -312,20 +313,8 @@ export default function ChessPage() {
       // Démarrer l'animation
       animationState.animationId = requestAnimationFrame(animateBlur)
       
-      // Lancer le preprocessing en parallèle via API
-      const preprocessRes = await fetch("/api/chess/preprocess", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageDataUrl }),
-      })
-      
-      if (!preprocessRes.ok) {
-        const errorData = await preprocessRes.json()
-        throw new Error(errorData.error || "Erreur lors du preprocessing")
-      }
-      
-      const preprocessData = await preprocessRes.json()
-      const preprocessedImageUrl = preprocessData.preprocessedImageUrl
+      // Lancer le preprocessing en parallèle (appel direct Gradio côté client)
+      const preprocessedImageUrl = await preprocessChessImage(imageDataUrl)
       
       // Le preprocessing est terminé, enregistrer la durée réelle
       animationState.actualDuration = Date.now() - startTime
@@ -348,18 +337,7 @@ export default function ChessPage() {
       // Étape 2: Analyse avec le modèle pour détecter le FEN
       // IMPORTANT: Utiliser l'image originale, pas l'image préprocessée
       setPreprocessingStep("Analyse avec le modèle...")
-      const analyzeRes = await fetch("/api/chess/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageDataUrl }),
-      })
-      
-      if (!analyzeRes.ok) {
-        const errorData = await analyzeRes.json()
-        throw new Error(errorData.error || "Erreur lors de l'analyse")
-      }
-      
-      const result = await analyzeRes.json()
+      const result = await analyzeChessImage(imageDataUrl)
       
       if (result.fen) {
         
