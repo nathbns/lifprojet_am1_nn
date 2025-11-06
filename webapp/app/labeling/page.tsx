@@ -213,22 +213,22 @@ function handleMouseUp(e: React.MouseEvent<HTMLCanvasElement>) {
   }, [selectedIndex]);
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8 space-y-6 select-none">
-      <h1 className="text-3xl font-bold text-gray-800">Annotation d’images – Échecs</h1>
+    <div className="min-h-screen bg-background p-8 space-y-6 select-none text-foreground">
+      <h1 className="text-3xl font-bold">Annotation d’images – Échecs</h1>
 
       <input type="file" accept="image/*" onChange={handleImageUpload} className="mb-4" />
 
       <select
         value={selectedLabel}
         onChange={(e) => setSelectedLabel(e.target.value)}
-        className="border rounded px-2 py-1"
+        className="border border-border bg-background text-foreground px-2 py-1"
       >
         {labels.map((l) => (
           <option key={l}>{l}</option>
         ))}
       </select>
 
-      <div className="relative border border-gray-300 inline-block">
+      <div className="relative border border-border inline-block">
         {image && (
           <>
             <Image src={image} alt="To annotate" width={800} height={800} />
@@ -247,8 +247,8 @@ function handleMouseUp(e: React.MouseEvent<HTMLCanvasElement>) {
     key={i}
     onClick={() => handleSelectBox(i)}
     className={`absolute text-xs flex items-center justify-center
-      ${selectedIndex === i ? "border-2 border-red-500" : "border border-blue-500"}
-      bg-blue-500/20 text-white`}
+      ${selectedIndex === i ? "border-2 border-primary" : "border border-primary/70"}
+      bg-primary/20 text-foreground`}
     style={{ left: b.x, top: b.y, width: b.width, height: b.height }}
   >
     {b.label}
@@ -259,7 +259,7 @@ function handleMouseUp(e: React.MouseEvent<HTMLCanvasElement>) {
 <div
   key={corner}
   onMouseDown={(e) => handleMouseDownResize(i, corner as "tl" | "tr" | "bl" | "br", e)}
-  className="absolute bg-white border border-gray-700 w-3 h-3 rounded-sm z-10"
+  className="absolute bg-background border border-border w-3 h-3 z-10"
   style={{
     cursor:
       corner === "tl"
@@ -283,8 +283,8 @@ function handleMouseUp(e: React.MouseEvent<HTMLCanvasElement>) {
 
 
             {currentBox && (
-              <div
-                className="absolute border border-green-500 bg-green-500/10"
+            <div
+              className="absolute border border-primary bg-primary/10"
                 style={{
                   left: currentBox.x,
                   top: currentBox.y,
@@ -298,12 +298,12 @@ function handleMouseUp(e: React.MouseEvent<HTMLCanvasElement>) {
       </div>
 
       {selectedIndex !== null && (
-  <div className="flex items-center gap-2 bg-white border px-3 py-2 rounded shadow">
-    <span className="text-sm text-gray-700 font-medium">Label sélectionné :</span>
+  <div className="flex items-center gap-2 bg-background border border-border px-3 py-2 shadow">
+    <span className="text-sm font-medium">Label sélectionné :</span>
     <select
       value={boxes[selectedIndex].label}
       onChange={(e) => updateSelectedLabel(e.target.value)}
-      className="border rounded px-2 py-1 text-sm"
+      className="border border-border bg-background text-foreground px-2 py-1 text-sm"
     >
       {labels.map((label) => (
         <option key={label} value={label}>
@@ -315,7 +315,7 @@ function handleMouseUp(e: React.MouseEvent<HTMLCanvasElement>) {
 )}
 
 
-      <pre className="bg-gray-100 p-4 rounded text-sm w-[800px]">
+      <pre className="bg-muted p-4 text-sm w-[800px] text-foreground">
         {JSON.stringify(boxes, null, 2)}
       </pre>
     </div>

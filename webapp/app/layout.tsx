@@ -11,8 +11,7 @@ const pixelify = Pixelify_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "LIF Project - Test de Modèles IA",
-  description: "Interface de test pour les modèles d'intelligence artificielle",
+  title: "YOCO",
   icons: {
     icon: "/icon.svg",
   },
@@ -26,17 +25,17 @@ export default function RootLayout({
   return (
     <html lang="fr" suppressHydrationWarning>
       <body className={`${pixelify.variable} ${pixelify.variable} ${pixelify.className} antialiased`}>
-              <ThemeProvider
+        <ThemeProvider
           attribute="class"
           defaultTheme="system"
           enableSystem
           disableTransitionOnChange
         >
-              <div className="relative min-h-screen flex">
-                <Sidebar />
-                <main className="flex-1 md:ml-16">{children}</main>
-              </div>
-              </ThemeProvider>
+          <div className="relative min-h-screen flex">
+            <Sidebar />
+            <main className="flex-1 md:ml-16">{children}</main>
+          </div>
+        </ThemeProvider>
       </body>
     </html>
   );
