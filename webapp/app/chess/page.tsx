@@ -356,6 +356,39 @@ export default function ChessPage() {
           // Le score sera calculé automatiquement dès que l'utilisateur modifie l'échiquier
         } catch (err) {
           console.error("Erreur création échiquier de correction:", err)
+          // Si le FEN détecté est invalide (ex: rois manquants ou multiples), créer un échiquier de correction
+          // en sanitant uniquement pour l'affichage/correction.
+          try {
+            const parts = result.fen.split(' ')
+            const boardStr = parts[0]
+            const board: (string | null)[][] = Array(8).fill(null).map(() => Array(8).fill(null))
+            let row = 0
+            let col = 0
+            for (const ch of boardStr) {
+              if (ch === '/') {
+                row++
+                col = 0
+              } else if (ch >= '1' && ch <= '8') {
+                col += parseInt(ch)
+              } else {
+                board[row][col] = ch
+                col++
+              }
+            }
+            const boardCopy = sanitizeBoardKings(board)
+            const tempFenValid = buildFenFromBoard(
+              boardCopy,
+              parts[1] || 'w',
+              parts[2] || '-',
+              parts[3] || '-',
+              parseInt(parts[4]) || 0,
+              parseInt(parts[5]) || 1
+            )
+            const correctionBoard = new Chess(tempFenValid)
+            setCorrectionGame(correctionBoard)
+          } catch (e) {
+            console.error("Fallback correction board creation failed:", e)
+          }
         }
       } else {
         setDetectionError("Aucun FEN n'a pu être détecté")
@@ -389,11 +422,42 @@ export default function ChessPage() {
       setCapturedPieces({ white: [], black: [] })
       setDetectionError("")
       setCurrentMoveIndex(-1)
-      // Basculer vers le mode IA par défaut
       setGameMode("vs-computer")
-    } catch (err) {
-      console.error("Erreur FEN:", err)
-      setDetectionError("FEN invalide: " + (err as Error).message)
+    } catch (_err) {
+      // Ne pas bloquer: sanitiser uniquement pour l'affichage/jeu avec chess.js
+      try {
+        const parts = fenToUse.split(' ')
+        const boardStr = parts[0]
+        const board: (string | null)[][] = Array(8).fill(null).map(() => Array(8).fill(null))
+        let row = 0
+        let col = 0
+        for (const ch of boardStr) {
+          if (ch === '/') { row++; col = 0 }
+          else if (ch >= '1' && ch <= '8') { col += parseInt(ch) }
+          else { board[row][col] = ch; col++ }
+        }
+        const sanitized = sanitizeBoardKings(board)
+        const sanitizedFen = buildFenFromBoard(
+          sanitized,
+          parts[1] || 'w',
+          parts[2] || '-',
+          parts[3] || '-',
+          parseInt(parts[4]) || 0,
+          parseInt(parts[5]) || 1
+        )
+        const newGame = new Chess(sanitizedFen)
+        setGame(newGame)
+        updateGameStatus(newGame)
+        setMoveHistory([])
+        setCapturedPieces({ white: [], black: [] })
+        // Ne pas afficher d'erreur: on a accepté le FEN (sanitisation interne)
+        setDetectionError("")
+        setCurrentMoveIndex(-1)
+        setGameMode("vs-computer")
+      } catch (err2) {
+        console.error("Impossible d'initialiser même après sanitisation:", err2)
+        // Dernier recours: ne pas bloquer l'UI; rester sur l'état actuel sans erreur bloquante
+      }
     }
   }
 
@@ -537,6 +601,49 @@ export default function ChessPage() {
     return fen
   }, [])
 
+  // Sanitize: garantir exactement un roi blanc et un roi noir pour compatibilité chess.js (affichage uniquement)
+  const sanitizeBoardKings = useCallback((board: (string | null)[][]): (string | null)[][] => {
+    const copy = board.map(r => [...r])
+    // Compter positions des rois
+    const whiteKingPositions: Array<{ r: number; c: number }> = []
+    const blackKingPositions: Array<{ r: number; c: number }> = []
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        if (copy[r][c] === 'K') whiteKingPositions.push({ r, c })
+        if (copy[r][c] === 'k') blackKingPositions.push({ r, c })
+      }
+    }
+    // Trop de rois: conserver le premier, supprimer les autres
+    if (whiteKingPositions.length > 1) {
+      for (let i = 1; i < whiteKingPositions.length; i++) {
+        const { r, c } = whiteKingPositions[i]
+        copy[r][c] = null
+      }
+    }
+    if (blackKingPositions.length > 1) {
+      for (let i = 1; i < blackKingPositions.length; i++) {
+        const { r, c } = blackKingPositions[i]
+        copy[r][c] = null
+      }
+    }
+    // Manquants: ajouter sur la première case libre
+    const ensureKing = (isWhite: boolean) => {
+      const hasKing = isWhite ? whiteKingPositions.length >= 1 : blackKingPositions.length >= 1
+      if (hasKing) return
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          if (!copy[r][c]) {
+            copy[r][c] = isWhite ? 'K' : 'k'
+            return
+          }
+        }
+      }
+    }
+    ensureKing(true)
+    ensureKing(false)
+    return copy
+  }, [])
+
   // Fonction helper pour supprimer une pièce d'une case spécifique
   const deletePieceFromSquare = useCallback((square: Square) => {
     if (!correctionGame) return
@@ -590,40 +697,8 @@ export default function ChessPage() {
       try {
         newGame = new Chess(newFen)
       } catch {
-        // Si le FEN est invalide (ex: manque un roi), on ajoute temporairement les rois manquants
-        const boardCopy = board.map(r => [...r])
-        let hasWhiteKing = false
-        let hasBlackKing = false
-        
-        for (let r = 0; r < 8; r++) {
-          for (let c = 0; c < 8; c++) {
-            if (board[r][c] === 'K') hasWhiteKing = true
-            if (board[r][c] === 'k') hasBlackKing = true
-          }
-        }
-        
-        // Ajouter les rois manquants temporairement pour l'affichage
-        if (!hasWhiteKing) {
-          for (let r = 0; r < 8 && !hasWhiteKing; r++) {
-            for (let c = 0; c < 8 && !hasWhiteKing; c++) {
-              if (!boardCopy[r][c]) {
-                boardCopy[r][c] = 'K'
-                hasWhiteKing = true
-              }
-            }
-          }
-        }
-        if (!hasBlackKing) {
-          for (let r = 0; r < 8 && !hasBlackKing; r++) {
-            for (let c = 0; c < 8 && !hasBlackKing; c++) {
-              if (!boardCopy[r][c]) {
-                boardCopy[r][c] = 'k'
-                hasBlackKing = true
-              }
-            }
-          }
-        }
-        
+        // Sanitize rois (manquants ou multiples) uniquement pour affichage
+        const boardCopy = sanitizeBoardKings(board)
         const tempFenValid = buildFenFromBoard(
           boardCopy,
           fenParts[1] || 'w',
@@ -632,7 +707,6 @@ export default function ChessPage() {
           parseInt(fenParts[4]) || 0,
           parseInt(fenParts[5]) || 1
         )
-        
         newGame = new Chess(tempFenValid)
       }
       
@@ -707,40 +781,8 @@ export default function ChessPage() {
       try {
         newGame = new Chess(newFen)
       } catch {
-        // Si le FEN est invalide, on ajoute temporairement les rois manquants pour l'affichage
-        const boardCopy = board.map(r => [...r])
-        let hasWhiteKing = false
-        let hasBlackKing = false
-        
-        for (let r = 0; r < 8; r++) {
-          for (let c = 0; c < 8; c++) {
-            if (board[r][c] === 'K') hasWhiteKing = true
-            if (board[r][c] === 'k') hasBlackKing = true
-          }
-        }
-        
-        // Ajouter les rois manquants temporairement pour l'affichage
-        if (!hasWhiteKing) {
-          for (let r = 0; r < 8 && !hasWhiteKing; r++) {
-            for (let c = 0; c < 8 && !hasWhiteKing; c++) {
-              if (!boardCopy[r][c]) {
-                boardCopy[r][c] = 'K'
-                hasWhiteKing = true
-              }
-            }
-          }
-        }
-        if (!hasBlackKing) {
-          for (let r = 0; r < 8 && !hasBlackKing; r++) {
-            for (let c = 0; c < 8 && !hasBlackKing; c++) {
-              if (!boardCopy[r][c]) {
-                boardCopy[r][c] = 'k'
-                hasBlackKing = true
-              }
-            }
-          }
-        }
-        
+        // Sanitize rois (manquants ou multiples) uniquement pour affichage
+        const boardCopy = sanitizeBoardKings(board)
         const tempFenValid = buildFenFromBoard(
           boardCopy,
           fenParts[1] || 'w',
@@ -749,7 +791,6 @@ export default function ChessPage() {
           parseInt(fenParts[4]) || 0,
           parseInt(fenParts[5]) || 1
         )
-        
         newGame = new Chess(tempFenValid)
       }
       
