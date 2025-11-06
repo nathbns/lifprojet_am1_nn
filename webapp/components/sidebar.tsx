@@ -95,12 +95,12 @@ const navigation = [
   },
   {
     name: "Stats",
-    href: "/docs",
+    href: "/charts",
     icon: StatsIcon,
   },
   {
     name: "Labels",
-    href: "",
+    href: "/labeling",
     icon: ConfigIcon,
   }
 ]
