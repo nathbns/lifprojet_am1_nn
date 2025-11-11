@@ -4,6 +4,7 @@ import { FlickeringGrid } from "@/components/ui/flickering-grid-hero";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
+import { FaGithub } from "react-icons/fa";
 
 
 // SVG du texte YOCO encodé en base64
@@ -126,6 +127,13 @@ export default function Home() {
           </Link>
         </div>
       </div>
+      <footer className="absolute bottom-0 left-0 w-full h-2 bg-background/70 backdrop-blur">
+        <div className="container mx-auto px-4 py-2 text-center text-sm">
+          <p className="flex items-center justify-center gap-2"><span>&copy; {new Date().getFullYear()} YOCO. All rights reserved.</span> <br />
+            <a href="https://github.com/nathbns/yoco"><FaGithub className="inline-block w-4 h-4" /></a>
+          </p>
+        </div>
+      </footer>
     </div>
-  );
+  )
 }

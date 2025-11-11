@@ -1,0 +1,13 @@
+__pycache__/
+.venv/
+src/.venv/
+deps/_pycache__/ 
+src/__pycache__/
+src/detection/__pycache__/
+src/preprocess/__pycache__/
+src/training/__pycache__/
+src/utils/__pycache__/
+.DS_Store
+*.pyc
+
+

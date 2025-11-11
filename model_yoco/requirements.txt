@@ -1,0 +1,13 @@
+keras  
+matplotlib  
+numpy  
+opencv-contrib-python  
+chess  
+scipy  
+tensorflow  
+wand
+pyclipper
+scikit-learn
+torch
+torchvision
+tqdm

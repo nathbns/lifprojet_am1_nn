@@ -1,0 +1,15 @@
+{
+  "Bishop_Black": 0,
+  "Bishop_White": 1,
+  "Empty": 2,
+  "King_Black": 3,
+  "King_White": 4,
+  "Knight_Black": 5,
+  "Knight_White": 6,
+  "Pawn_Black": 7,
+  "Pawn_White": 8,
+  "Queen_Black": 9,
+  "Queen_White": 10,
+  "Rook_Black": 11,
+  "Rook_White": 12
+}
