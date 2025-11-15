@@ -11,8 +11,9 @@ import { FileUpload } from "@/components/ui/file-upload"
 import { Highlighter } from "@/components/ui/highlighter"
 import type { Square } from "chess.js"
 import Image from "next/image"
-import { User } from "lucide-react"
+import { User, Zap } from "lucide-react"
 import { analyzeChessImage, preprocessChessImage } from "@/lib/gradio"
+import { MinimaxAI } from "@/lib/minimax"
 
 // Fonction helper pour obtenir l'élément JSX d'une pièce capturée
 const getPieceSymbol = (piece: string, size: number = 20): React.ReactElement => {
@@ -51,7 +52,12 @@ export default function ChessPage() {
     white: React.ReactElement[]
     black: React.ReactElement[]
   }>({ white: [], black: [] })
-  const [gameMode, setGameMode] = useState<"image" | "vs-human" | "vs-computer">("image")
+  const [gameMode, setGameMode] = useState<"image" | "config" | "playing">("image")
+  const [playerColor, setPlayerColor] = useState<"white" | "black">("white")
+  const [timeControl, setTimeControl] = useState<number>(10) // minutes
+  const [playerTime, setPlayerTime] = useState<number>(600) // secondes
+  const [aiTime, setAiTime] = useState<number>(600) // secondes
+  const [isTimerActive, setIsTimerActive] = useState<boolean>(false)
   const [imageDataUrl, setImageDataUrl] = useState<string>("")
   const [isDetecting, setIsDetecting] = useState<boolean>(false)
   const [detectedFen, setDetectedFen] = useState<string>("")
@@ -72,6 +78,9 @@ export default function ChessPage() {
   const leftPanelRef = useRef<HTMLDivElement>(null)
   const rightPanelRef = useRef<HTMLDivElement>(null)
   const isGameOver = useMemo(() => game.isGameOver(), [game])
+  const [aiDepth, setAiDepth] = useState<number>(3)
+  const [isAiThinking, setIsAiThinking] = useState<boolean>(false)
+  const aiRef = useRef<MinimaxAI>(new MinimaxAI(3))
 
   // Calculer la taille de l'échiquier basée sur la largeur disponible
   useEffect(() => {
@@ -114,14 +123,19 @@ export default function ChessPage() {
     if (currentGame.isCheckmate()) {
       const winner = currentGame.turn() === "w" ? "Noirs" : "Blancs"
       setGameStatus(`Échec et mat! Les ${winner} gagnent !`)
+      setIsTimerActive(false)
     } else if (currentGame.isStalemate()) {
       setGameStatus("Pat ! Match nul.")
+      setIsTimerActive(false)
     } else if (currentGame.isDraw()) {
       setGameStatus("Match nul !")
+      setIsTimerActive(false)
     } else if (currentGame.isThreefoldRepetition()) {
       setGameStatus("Triple répétition ! Match nul.")
+      setIsTimerActive(false)
     } else if (currentGame.isInsufficientMaterial()) {
       setGameStatus("Matériel insuffisant ! Match nul.")
+      setIsTimerActive(false)
     } else if (currentGame.isCheck()) {
       setGameStatus("Échec !")
     } else {
@@ -129,8 +143,119 @@ export default function ChessPage() {
     }
   }, [])
 
+  // Mettre à jour la profondeur de l'IA
+  useEffect(() => {
+    aiRef.current.setDepth(aiDepth)
+  }, [aiDepth])
+
+  // Timer pour le temps de jeu
+  useEffect(() => {
+    // Ne pas faire tourner le timer si on n'est pas sur le dernier coup
+    const isOnLatestMove = currentMoveIndex === moveHistory.length - 1 || (currentMoveIndex === -1 && moveHistory.length === 0)
+    
+    if (!isTimerActive || isGameOver || gameMode !== "playing" || !isOnLatestMove) return
+
+    const interval = setInterval(() => {
+      const isPlayerTurn = (game.turn() === 'w' && playerColor === 'white') || 
+                           (game.turn() === 'b' && playerColor === 'black')
+      
+      if (isPlayerTurn) {
+        setPlayerTime(prev => {
+          if (prev <= 0) {
+            setGameStatus("Temps écoulé ! Vous avez perdu.")
+            setIsTimerActive(false)
+            return 0
+          }
+          return prev - 1
+        })
+      } else {
+        setAiTime(prev => {
+          if (prev <= 0) {
+            setGameStatus("Temps écoulé ! L'IA a perdu. Vous gagnez !")
+            setIsTimerActive(false)
+            return 0
+          }
+          return prev - 1
+        })
+      }
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [isTimerActive, game, gameMode, isGameOver, playerColor, currentMoveIndex, moveHistory.length])
+
+  // Faire jouer l'IA automatiquement quand c'est son tour
+  useEffect(() => {
+    const isOnLatestMove = currentMoveIndex === moveHistory.length - 1 || (currentMoveIndex === -1 && moveHistory.length === 0)
+    const aiColor = playerColor === 'white' ? 'b' : 'w'
+    
+    if (
+      gameMode === "playing" &&
+      game.turn() === aiColor &&
+      !isGameOver &&
+      !isAiThinking &&
+      isOnLatestMove
+    ) {
+      const makeAiMove = async () => {
+        setIsAiThinking(true)
+        
+        // Ajouter un petit délai pour que l'utilisateur voit que l'IA réfléchit
+        await new Promise(resolve => setTimeout(resolve, 300))
+        
+        try {
+          // Obtenir le meilleur coup de l'IA
+          const result = aiRef.current.getBestMove(game)
+          
+          if (result.move) {
+            const gameCopy = new Chess(game.fen())
+            const move = gameCopy.move(result.move)
+            
+            if (move) {
+              // Capturer une pièce si nécessaire
+              if (move.captured) {
+                const capturedPiece = move.color === "w" 
+                  ? move.captured.toLowerCase()
+                  : move.captured.toUpperCase()
+                const capturedSymbol = getPieceSymbol(capturedPiece)
+                
+                setCapturedPieces(prev => ({
+                  ...prev,
+                  [move.color === "w" ? "white" : "black"]: [
+                    ...prev[move.color === "w" ? "white" : "black"],
+                    capturedSymbol
+                  ]
+                }))
+              }
+
+              setGame(gameCopy)
+              setMoveHistory(prev => [...prev, move.san])
+              setCurrentMoveIndex(moveHistory.length)
+              updateGameStatus(gameCopy)
+              
+              console.log(`IA: ${move.san} (Score: ${result.score}, Nœuds: ${result.nodesEvaluated})`)
+            }
+          }
+        } catch (error) {
+          console.error("Erreur lors du calcul du coup de l'IA:", error)
+        } finally {
+          setIsAiThinking(false)
+        }
+      }
+      
+      makeAiMove()
+    }
+  }, [game, gameMode, isGameOver, isAiThinking, currentMoveIndex, moveHistory.length, updateGameStatus, playerColor])
+
   const onDrop = useCallback(
     (sourceSquare: Square, targetSquare: Square) => {
+      // Empêcher le joueur de jouer si l'IA réfléchit
+      if (isAiThinking) return false
+      
+      // En mode playing, vérifier que c'est bien le tour du joueur
+      if (gameMode === "playing") {
+        const playerTurn = playerColor === 'white' ? 'w' : 'b'
+        if (game.turn() !== playerTurn) return false
+      }
+      
       try {
         const gameCopy = new Chess(game.fen())
         
@@ -172,7 +297,7 @@ export default function ChessPage() {
         return false
       }
     },
-    [game, updateGameStatus, moveHistory.length]
+    [game, updateGameStatus, moveHistory.length, isAiThinking, gameMode, playerColor]
   )
 
   const goToMove = useCallback((index: number) => {
@@ -413,7 +538,7 @@ export default function ChessPage() {
     const fenToUse = correctedFen || correctionGame?.fen() || manualFen.trim()
     if (!fenToUse) return
     
-    // Charger le FEN et basculer vers le mode IA
+    // Charger le FEN et basculer vers le mode configuration
     try {
       const newGame = new Chess(fenToUse)
       setGame(newGame)
@@ -422,7 +547,7 @@ export default function ChessPage() {
       setCapturedPieces({ white: [], black: [] })
       setDetectionError("")
       setCurrentMoveIndex(-1)
-      setGameMode("vs-computer")
+      setGameMode("config")
     } catch (_err) {
       // Ne pas bloquer: sanitiser uniquement pour l'affichage/jeu avec chess.js
       try {
@@ -453,12 +578,22 @@ export default function ChessPage() {
         // Ne pas afficher d'erreur: on a accepté le FEN (sanitisation interne)
         setDetectionError("")
         setCurrentMoveIndex(-1)
-        setGameMode("vs-computer")
+        setGameMode("config")
       } catch (err2) {
         console.error("Impossible d'initialiser même après sanitisation:", err2)
         // Dernier recours: ne pas bloquer l'UI; rester sur l'état actuel sans erreur bloquante
       }
     }
+  }
+
+  const startGame = () => {
+    // Réinitialiser les timers
+    const timeInSeconds = timeControl * 60
+    setPlayerTime(timeInSeconds)
+    setAiTime(timeInSeconds)
+    setIsTimerActive(true)
+    setGameMode("playing")
+    setCurrentMoveIndex(-1)
   }
 
   const copyToClipboard = (text: string) => {
@@ -875,11 +1010,31 @@ ${moveHistory.map((move, idx) => {
     setGameStatus("Vous avez abandonné. L'IA gagne !")
   }
 
+  const resetGame = () => {
+    const newGame = new Chess()
+    setGame(newGame)
+    setMoveHistory([])
+    setCapturedPieces({ white: [], black: [] })
+    setGameStatus("")
+    setCurrentMoveIndex(-1)
+    setIsAiThinking(false)
+    setIsTimerActive(false)
+    const timeInSeconds = timeControl * 60
+    setPlayerTime(timeInSeconds)
+    setAiTime(timeInSeconds)
+  }
+
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60)
+    const secs = seconds % 60
+    return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
+
   return (
-    <div className="min-h-screen py-2 sm:py-4 md:py-4">
+    <div className="min-h-screen py-2 sm:py-4 md:py-4 pb-4">
       <div className="max-w-[1400px] mx-auto px-2 sm:px-4 md:px-4">
-        <div className="mb-4 sm:mb-6 md:mb-8 text-center pt-12 md:pt-0">
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-2">
+        <div className="mb-3 sm:mb-4 md:mb-6 text-center pt-12 md:pt-0">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-1">
             Jeu d&apos;
             {" "}<Highlighter
               action="highlight"
@@ -894,7 +1049,7 @@ ${moveHistory.map((move, idx) => {
               <p className="text-background">Échecs</p>
             </Highlighter>
           </h1>
-          <p className="text-muted-foreground mb-4">
+          <p className="text-muted-foreground mb-15">
             <Highlighter action="underline" color="#c9c9c9" padding={3}>
               Choisissez votre mode
             </Highlighter>
@@ -902,53 +1057,167 @@ ${moveHistory.map((move, idx) => {
           </p>
           
           {/* Mode Switch - Discret */}
-          <div className="inline-flex items-center gap-2 bg-muted/30 p-1">
-            <Button
-              variant={gameMode === "image" ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setGameMode("image")}
-              className="h-8 px-2 sm:px-3 text-xs sm:text-sm"
-            >
-              <Camera className="h-3 w-3 sm:h-4 sm:w-4 sm:mr-1" />
-              <span className="hidden sm:inline">Image</span>
-            </Button>
-            <Button
-              variant={gameMode === "vs-computer" ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setGameMode("vs-computer")}
-              className="h-8 px-2 sm:px-3 text-xs sm:text-sm"
-            >
-              <Bot className="h-3 w-3 sm:h-4 sm:w-4 sm:mr-1" />
-              <span className="hidden sm:inline">IA</span>
-            </Button>
-            <Button
-              variant={gameMode === "vs-human" ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setGameMode("vs-human")}
-              className="h-8 px-2 sm:px-3 text-xs sm:text-sm"
-            >
-              <User className="h-3 w-3 sm:h-4 sm:w-4 sm:mr-1" />
-              <span className="hidden sm:inline ml-1">2 Joueurs</span>
-            </Button>
-          </div>
+          {(gameMode === "image" || gameMode === "config") && (
+            <div className="inline-flex items-center gap-2 bg-muted/30 p-1">
+              <Button
+                variant={gameMode === "image" ? "default" : "ghost"}
+                size="sm"
+                onClick={() => setGameMode("image")}
+                className="h-8 px-2 sm:px-3 text-xs sm:text-sm"
+              >
+                <Camera className="h-3 w-3 sm:h-4 sm:w-4 sm:mr-1" />
+                <span className="hidden sm:inline">Détection</span>
+              </Button>
+            </div>
+          )}
         </div>
 
 
         {/* Content based on mode */}
-        {gameMode === "image" ? (
+        {gameMode === "config" ? (
+          /* Configuration de la partie */
+          <div className="w-full max-w-4xl mx-auto px-4">
+            <Card className="rounded-none">
+              <CardHeader className="pb-4">
+                <CardTitle>Configuration de la partie</CardTitle>
+                <CardDescription>Choisissez vos paramètres avant de commencer</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4 pb-4">
+                {/* Aperçu de l'échiquier */}
+                <div className="flex justify-center">
+                  <div className="border-2 border-muted inline-block">
+                    <Chessboard
+                      position={game.fen()}
+                      boardWidth={Math.min(400, typeof window !== 'undefined' ? window.innerWidth - 64 : 400)}
+                      arePiecesDraggable={false}
+                      customBoardStyle={{
+                        backgroundImage: "url('/newspaper.svg')",
+                        backgroundSize: "100% 100%",
+                        backgroundRepeat: "no-repeat",
+                        border: "none"
+                      }}
+                      customLightSquareStyle={{ backgroundColor: "transparent" }}
+                      customDarkSquareStyle={{ backgroundColor: "transparent" }}
+                      customPieces={{
+                        wP: ({ squareWidth }) => <Image src="https://lichess1.org/assets/piece/pixel/wP.svg" alt="P" width={squareWidth} height={squareWidth} style={{ width: squareWidth, height: squareWidth, pointerEvents: "none" }} unoptimized />,
+                        wN: ({ squareWidth }) => <Image src="https://lichess1.org/assets/piece/pixel/wN.svg" alt="N" width={squareWidth} height={squareWidth} style={{ width: squareWidth, height: squareWidth, pointerEvents: "none" }} unoptimized />,
+                        wB: ({ squareWidth }) => <Image src="https://lichess1.org/assets/piece/pixel/wB.svg" alt="B" width={squareWidth} height={squareWidth} style={{ width: squareWidth, height: squareWidth, pointerEvents: "none" }} unoptimized />,
+                        wR: ({ squareWidth }) => <Image src="https://lichess1.org/assets/piece/pixel/wR.svg" alt="R" width={squareWidth} height={squareWidth} style={{ width: squareWidth, height: squareWidth, pointerEvents: "none" }} unoptimized />,
+                        wQ: ({ squareWidth }) => <Image src="https://lichess1.org/assets/piece/pixel/wQ.svg" alt="Q" width={squareWidth} height={squareWidth} style={{ width: squareWidth, height: squareWidth, pointerEvents: "none" }} unoptimized />,
+                        wK: ({ squareWidth }) => <Image src="https://lichess1.org/assets/piece/pixel/wK.svg" alt="K" width={squareWidth} height={squareWidth} style={{ width: squareWidth, height: squareWidth, pointerEvents: "none" }} unoptimized />,
+                        bP: ({ squareWidth }) => <Image src="https://lichess1.org/assets/piece/pixel/bP.svg" alt="p" width={squareWidth} height={squareWidth} style={{ width: squareWidth, height: squareWidth, pointerEvents: "none" }} unoptimized />,
+                        bN: ({ squareWidth }) => <Image src="https://lichess1.org/assets/piece/pixel/bN.svg" alt="n" width={squareWidth} height={squareWidth} style={{ width: squareWidth, height: squareWidth, pointerEvents: "none" }} unoptimized />,
+                        bB: ({ squareWidth }) => <Image src="https://lichess1.org/assets/piece/pixel/bB.svg" alt="b" width={squareWidth} height={squareWidth} style={{ width: squareWidth, height: squareWidth, pointerEvents: "none" }} unoptimized />,
+                        bR: ({ squareWidth }) => <Image src="https://lichess1.org/assets/piece/pixel/bR.svg" alt="r" width={squareWidth} height={squareWidth} style={{ width: squareWidth, height: squareWidth, pointerEvents: "none" }} unoptimized />,
+                        bQ: ({ squareWidth }) => <Image src="https://lichess1.org/assets/piece/pixel/bQ.svg" alt="q" width={squareWidth} height={squareWidth} style={{ width: squareWidth, height: squareWidth, pointerEvents: "none" }} unoptimized />,
+                        bK: ({ squareWidth }) => <Image src="https://lichess1.org/assets/piece/pixel/bK.svg" alt="k" width={squareWidth} height={squareWidth} style={{ width: squareWidth, height: squareWidth, pointerEvents: "none" }} unoptimized />
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Choix de la couleur */}
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold uppercase">Jouer en tant que</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      variant={playerColor === "white" ? "default" : "outline"}
+                      onClick={() => setPlayerColor("white")}
+                      className="h-12 rounded-none"
+                    >
+                      Blancs
+                    </Button>
+                    <Button
+                      variant={playerColor === "black" ? "default" : "outline"}
+                      onClick={() => setPlayerColor("black")}
+                      className="h-12 rounded-none"
+                    >
+                      Noirs
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Temps de jeu */}
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold uppercase">Temps de jeu</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <Button
+                      variant={timeControl === 5 ? "default" : "outline"}
+                      onClick={() => setTimeControl(5)}
+                      className="h-12 rounded-none"
+                    >
+                      5 min
+                    </Button>
+                    <Button
+                      variant={timeControl === 10 ? "default" : "outline"}
+                      onClick={() => setTimeControl(10)}
+                      className="h-12 rounded-none"
+                    >
+                      10 min
+                    </Button>
+                    <Button
+                      variant={timeControl === 15 ? "default" : "outline"}
+                      onClick={() => setTimeControl(15)}
+                      className="h-12 rounded-none"
+                    >
+                      15 min
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Niveau de l'IA */}
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold uppercase">Niveau de l&apos;IA</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <Button
+                      variant={aiDepth === 2 ? "default" : "outline"}
+                      onClick={() => setAiDepth(2)}
+                      className="h-12 rounded-none"
+                    >
+                      Facile<br/><span className="text-xs opacity-70">(profondeur 2)</span>
+                    </Button>
+                    <Button
+                      variant={aiDepth === 3 ? "default" : "outline"}
+                      onClick={() => setAiDepth(3)}
+                      className="h-12 rounded-none"
+                    >
+                      Moyen<br/><span className="text-xs opacity-70">(profondeur 3)</span>
+                    </Button>
+                    <Button
+                      variant={aiDepth === 4 ? "default" : "outline"}
+                      onClick={() => setAiDepth(4)}
+                      className="h-12 rounded-none"
+                    >
+                      Difficile<br/><span className="text-xs opacity-70">(profondeur 4)</span>
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Bouton démarrer */}
+                <Button
+                  onClick={startGame}
+                  size="lg"
+                  className="w-full h-14 text-lg font-semibold rounded-none"
+                >
+                  Commencer la partie
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        ) : gameMode === "image" ? (
           <div className="w-full max-w-2xl mx-auto px-4 sm:px-6">
             {/* Upload & Detection Section */}
-            <div className="space-y-6">
+            <div className="space-y-4">
               <div className="relative">
                 <Card className="rounded-none">
-                  <CardHeader>
+                  <CardHeader className="pb-4">
                     <CardTitle className="flex items-center gap-2">
                       <Camera className="h-5 w-5" />
                       Photo d&apos;Échiquier
                     </CardTitle>
                     <CardDescription>Téléchargez une photo réelle et détectez la position FEN</CardDescription>
                   </CardHeader>
-                  <CardContent className="p-4 sm:p-6 space-y-4">
+                  <CardContent className="p-4 sm:p-6 space-y-4 pb-4">
                     {!imageDataUrl ? (
                       <FileUpload onChange={handleFileUpload} />
                     ) : (
@@ -1044,7 +1313,7 @@ ${moveHistory.map((move, idx) => {
                         
                         {/* Échiquier de correction */}
                         {detectedFen && correctionGame ? (
-                          <div className="space-y-4 pt-4">
+                          <div className="space-y-3 pt-3">
                             <div>
                               <label className="text-sm font-medium mb-2 block">
                                 Corrigez les erreurs sur l&apos;échiquier :
@@ -1280,30 +1549,40 @@ ${moveHistory.map((move, idx) => {
         
         {/* Panneau de gauche - Info joueur et contrôles */}
         <div className="col-span-1 md:col-span-3 grid grid-rows-[auto_1fr] gap-2" ref={leftPanelRef} style={containerHeight > 0 ? { height: `${containerHeight}px` } : undefined}>
-          {/* Titre et info adversaire */}
+          {/* Titre et info adversaire (IA) */}
           <Card className="rounded-none">
             <CardContent className="pt-0 p-2 sm:p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-7 h-7 bg-muted flex items-center justify-center">
-                  {gameMode === "vs-computer" ? (
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 bg-muted flex items-center justify-center">
                     <Bot className="h-3.5 w-3.5" />
-                  ) : (
-                    <span><User className="h-3.5 w-3.5" /></span>
-                  )}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-xs">
+                      IA ({playerColor === "white" ? "Noirs" : "Blancs"})
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="font-semibold text-xs">
-                    {gameMode === "vs-computer" ? "IA (Noirs)" : "Adversaire (Noirs)"}
-                  </p>
+                {/* Timer IA */}
+                <div className={`text-lg font-mono font-bold ${
+                  ((game.turn() === 'b' && playerColor === 'white') || (game.turn() === 'w' && playerColor === 'black')) && isTimerActive
+                    ? 'text-foreground' 
+                    : 'text-muted-foreground'
+                }`}>
+                  {formatTime(aiTime)}
                 </div>
               </div>
-              {/* Pièces capturées par les noirs */}
+              {/* Pièces capturées par l'IA */}
               <div className="flex flex-wrap gap-1 min-h-[20px]">
-                {capturedPieces.black.map((piece, idx) => (
-                  <span key={idx} className="text-base">
-                    {piece}
-                  </span>
-                ))}
+                {playerColor === "white" ? (
+                  capturedPieces.black.map((piece, idx) => (
+                    <span key={idx} className="text-base">{piece}</span>
+                  ))
+                ) : (
+                  capturedPieces.white.map((piece, idx) => (
+                    <span key={idx} className="text-base">{piece}</span>
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>
@@ -1393,6 +1672,7 @@ ${moveHistory.map((move, idx) => {
               position={game.fen()}
               onPieceDrop={onDrop}
               boardWidth={boardSize}
+              boardOrientation={playerColor === "white" ? "white" : "black"}
               customBoardStyle={{
                 backgroundImage: "url('/newspaper.svg')",
                 backgroundSize: "100% 100%",
@@ -1450,26 +1730,40 @@ ${moveHistory.map((move, idx) => {
 
         {/* Panneau de droite - Contrôles et historique */}
         <div className="col-span-1 md:col-span-3 grid grid-rows-[auto_1fr_auto] gap-2" ref={rightPanelRef} style={containerHeight > 0 ? { height: `${containerHeight}px` } : undefined}>
-          {/* Titre et info joueur (Blancs) */}
+          {/* Titre et info joueur */}
           <Card className="rounded-none">
             <CardContent className="pt-0 p-2 sm:p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-7 h-7 bg-muted flex items-center justify-center">
-                  <User className="h-3.5 w-3.5" />
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 bg-muted flex items-center justify-center">
+                    <User className="h-3.5 w-3.5" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-xs">
+                      Vous ({playerColor === "white" ? "Blancs" : "Noirs"})
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="font-semibold text-xs">
-                    Vous (Blancs)
-                  </p>
+                {/* Timer joueur */}
+                <div className={`text-lg font-mono font-bold ${
+                  ((game.turn() === 'w' && playerColor === 'white') || (game.turn() === 'b' && playerColor === 'black')) && isTimerActive
+                    ? 'text-foreground' 
+                    : 'text-muted-foreground'
+                }`}>
+                  {formatTime(playerTime)}
                 </div>
               </div>
-              {/* Pièces capturées par les blancs */}
+              {/* Pièces capturées par le joueur */}
               <div className="flex flex-wrap gap-1 min-h-[20px]">
-                {capturedPieces.white.map((piece, idx) => (
-                  <span key={idx} className="text-base">
-                    {piece}
-                  </span>
-                ))}
+                {playerColor === "white" ? (
+                  capturedPieces.white.map((piece, idx) => (
+                    <span key={idx} className="text-base">{piece}</span>
+                  ))
+                ) : (
+                  capturedPieces.black.map((piece, idx) => (
+                    <span key={idx} className="text-base">{piece}</span>
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>
@@ -1553,25 +1847,66 @@ ${moveHistory.map((move, idx) => {
               {/* Statut du tour */}
               <div className="text-center">
                 <p className="text-xs font-semibold">
-                  {game.turn() === "w" 
-                    ? "VOTRE TOUR" 
-                    : gameMode === "vs-computer" 
-                      ? "TOUR DE L'IA" 
-                      : "TOUR DE L'ADVERSAIRE"}
+                  {isAiThinking ? (
+                    <span className="flex items-center justify-center gap-1">
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      L&apos;IA RÉFLÉCHIT...
+                    </span>
+                  ) : (
+                    ((game.turn() === 'w' && playerColor === 'white') || (game.turn() === 'b' && playerColor === 'black'))
+                      ? "VOTRE TOUR" 
+                      : "TOUR DE L'IA"
+                  )}
                 </p>
               </div>
 
-              {/* Bouton Resign - Plus petit */}
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={resign}
-                disabled={isGameOver}
-                className="w-full h-7 text-xs"
-              >
-                <Flag className="h-3 w-3 mr-1" />
-                Abandonner
-              </Button>
+              {/* Statut de la partie */}
+              {gameStatus && (
+                <div className="p-2 bg-primary/20 text-center text-xs font-semibold">
+                  {gameStatus}
+                </div>
+              )}
+
+              {/* Boutons d'action */}
+              <div className="space-y-1">
+                <div className="grid grid-cols-2 gap-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={resetGame}
+                    className="h-7 text-xs"
+                  >
+                    Nouvelle partie
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={resign}
+                    disabled={isGameOver}
+                    className="h-7 text-xs"
+                  >
+                    <Flag className="h-3 w-3 mr-1" />
+                    Abandonner
+                  </Button>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setGameMode("image")
+                    setIsTimerActive(false)
+                    setGame(new Chess())
+                    setMoveHistory([])
+                    setCapturedPieces({ white: [], black: [] })
+                    setGameStatus("")
+                    setCurrentMoveIndex(-1)
+                  }}
+                  className="w-full h-7 text-xs"
+                >
+                  <Camera className="h-3 w-3 mr-1" />
+                  Nouvelle détection
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>
