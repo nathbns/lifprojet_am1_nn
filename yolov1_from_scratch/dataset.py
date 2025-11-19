@@ -1,3 +1,7 @@
+"""
+Dataset YoloV1
+"""
+
 import torch
 import os
 import pandas as pd
@@ -63,7 +67,7 @@ class VOCDataset(torch.utils.data.Dataset):
 
                 label_matrix[i, j, 21:25] = box_coordinates
 
-                # one hot encoding
+                # one hot encoding pour la classe
                 label_matrix[i, j, class_label] = 1
 
         return image, label_matrix

@@ -1,3 +1,7 @@
+"""
+utils YoloV1
+"""
+
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
@@ -5,6 +9,9 @@ import matplotlib.patches as patches
 from collections import Counter
 
 def intersection_over_union(boxes_preds, boxes_labels, box_format="midpoint"):
+    """
+    Calcul de l'intersection sur l'union entre deux boites
+    """
     if box_format == "midpoint":
         box1_x1 = boxes_preds[..., 0:1] - boxes_preds[..., 2:3] / 2
         box1_y1 = boxes_preds[..., 1:2] - boxes_preds[..., 3:4] / 2
@@ -30,7 +37,7 @@ def intersection_over_union(boxes_preds, boxes_labels, box_format="midpoint"):
     x2 = torch.min(box1_x2, box2_x2)
     y2 = torch.min(box1_y2, box2_y2)
 
-    # .clamp(0) is for the case when they do not intersect
+    # .clamp(0) est pour le cas où elles ne se croisent pas
     intersection = (x2 - x1).clamp(0) * (y2 - y1).clamp(0)
 
     box1_area = abs((box1_x2 - box1_x1) * (box1_y2 - box1_y1))
@@ -41,26 +48,30 @@ def intersection_over_union(boxes_preds, boxes_labels, box_format="midpoint"):
 
 def non_max_suppression(bboxes, iou_threshold, threshold, box_format="corners"):
     """
-    Does Non Max Suppression given bboxes
+    Fait le Non Max Suppression données les bboxes
 
-    Parameters:
-        bboxes (list): list of lists containing all bboxes with each bboxes
-        specified as [class_pred, prob_score, x1, y1, x2, y2]
-        iou_threshold (float): threshold where predicted bboxes is correct
-        threshold (float): threshold to remove predicted bboxes (independent of IoU) 
-        box_format (str): "midpoint" or "corners" used to specify bboxes
+    Paramètres:
+        bboxes (list): liste de listes contenant toutes les bboxes avec chaque bbox
+        spécifiée comme [class_pred, prob_score, x1, y1, x2, y2]
+        iou_threshold (float): seuil où les bboxes prédites sont correctes
+        threshold (float): seuil pour supprimer les bboxes prédites (indépendant de IoU) 
+        box_format (str): "midpoint" ou "corners" utilisé pour spécifier les bboxes
 
     Returns:
-        list: bboxes after performing NMS given a specific IoU threshold
+        list: bboxes après avoir effectué le NMS donné un seuil IoU spécifique
     """
-
     assert type(bboxes) == list
 
+    # filtre les bboxes qui ont une probabilité inférieure au seuil
     bboxes = [box for box in bboxes if box[1] > threshold]
+    # trie les bboxes par probabilité décroissante
     bboxes = sorted(bboxes, key=lambda x: x[1], reverse=True)
+    # liste des bboxes après le NMS
     bboxes_after_nms = []
 
+    # tant que les bboxes sont présentes
     while bboxes:
+        # choisit la bbox avec la probabilité la plus élevée
         chosen_box = bboxes.pop(0)
 
         bboxes = [
@@ -84,32 +95,33 @@ def mean_average_precision(
     pred_boxes, true_boxes, iou_threshold=0.5, box_format="midpoint", num_classes=20
 ):
     """
-    Calculates mean average precision 
+    Calcul de la moyenne de la précision moyenne
 
-    Parameters:
-        pred_boxes (list): list of lists containing all bboxes with each bboxes
-        specified as [train_idx, class_prediction, prob_score, x1, y1, x2, y2]
-        true_boxes (list): Similar as pred_boxes except all the correct ones 
-        iou_threshold (float): threshold where predicted bboxes is correct
-        box_format (str): "midpoint" or "corners" used to specify bboxes
-        num_classes (int): number of classes
+    Parametres:
+        pred_boxes (list): liste de listes contenant toutes les bboxes avec chaque bbox
+        spécifiée comme [train_idx, class_prediction, prob_score, x1, y1, x2, y2]
+        true_boxes (list): Similaire à pred_boxes excepté toutes les vraies
+        iou_threshold (float): seuil où les bboxes prédites sont correctes
+        box_format (str): "midpoint" ou "corners" utilisé pour spécifier les bboxes
+        num_classes (int): nombre de classes
 
     Returns:
-        float: mAP value across all classes given a specific IoU threshold 
+        float: valeur mAP sur toutes les classes donné un seuil IoU spécifique 
     """
 
-    # list storing all AP for respective classes
+    # liste stockant toutes les AP pour chaque classe
     average_precisions = []
 
-    # used for numerical stability later on
+    # utilisé pour la stabilité numérique plus tard
     epsilon = 1e-6
 
     for c in range(num_classes):
         detections = []
         ground_truths = []
 
-        # Go through all predictions and targets,
-        # and only add the ones that belong to the
+        # parcourt toutes les prédictions et les targets,
+        # et ne les ajoute que si elles appartiennent à la
+        # classe c
         # current class c
         for detection in pred_boxes:
             if detection[1] == c:
@@ -119,32 +131,25 @@ def mean_average_precision(
             if true_box[1] == c:
                 ground_truths.append(true_box)
 
-        # find the amount of bboxes for each training example
-        # Counter here finds how many ground truth bboxes we get
-        # for each training example, so let's say img 0 has 3,
-        # img 1 has 5 then we will obtain a dictionary with:
-        # amount_bboxes = {0:3, 1:5}
+        # trouve le nombre de bboxes pour chaque exemple d'entraînement
+        # Counter trouve combien de bboxes vraies nous obtenons pour chaque exemple d'entraînement, donc disons que l'image 0 a 3, l'image 1 a 5 alors nous obtiendrons un dictionnaire avec: amount_bboxes = {0:3, 1:5}
         amount_bboxes = Counter([gt[0] for gt in ground_truths])
-
-        # We then go through each key, val in this dictionary
-        # and convert to the following (w.r.t same example):
-        # ammount_bboxes = {0:torch.tensor[0,0,0], 1:torch.tensor[0,0,0,0,0]}
+        # parcourt chaque clé, val dans ce dictionnaire et converti en le suivant (w.r.t même exemple): ammount_bboxes = {0:torch.tensor[0,0,0], 1:torch.tensor[0,0,0,0,0]}
         for key, val in amount_bboxes.items():
             amount_bboxes[key] = torch.zeros(val)
 
-        # sort by box probabilities which is index 2
+        # trie par probabilité de bbox qui est l'index 2
         detections.sort(key=lambda x: x[2], reverse=True)
         TP = torch.zeros((len(detections)))
         FP = torch.zeros((len(detections)))
         total_true_bboxes = len(ground_truths)
         
-        # If none exists for this class then we can safely skip
+        # Si aucun n'existe pour cette classe alors nous pouvons sauter en toute sécurité
         if total_true_bboxes == 0:
             continue
 
         for detection_idx, detection in enumerate(detections):
-            # Only take out the ground_truths that have the same
-            # training idx as detection
+            # Ne prend que les ground_truths qui ont le même idx d'entraînement que la détection
             ground_truth_img = [
                 bbox for bbox in ground_truths if bbox[0] == detection[0]
             ]
@@ -164,15 +169,15 @@ def mean_average_precision(
                     best_gt_idx = idx
 
             if best_iou > iou_threshold:
-                # only detect ground truth detection once
+                # ne détecte que la vraie détection une fois
                 if amount_bboxes[detection[0]][best_gt_idx] == 0:
-                    # true positive and add this bounding box to seen
+                    # true positive et ajoute cette bbox à vu
                     TP[detection_idx] = 1
                     amount_bboxes[detection[0]][best_gt_idx] = 1
                 else:
                     FP[detection_idx] = 1
 
-            # if IOU is lower then the detection is a false positive
+            # si IoU est plus bas alors la détection est un false positive
             else:
                 FP[detection_idx] = 1
 
@@ -182,26 +187,26 @@ def mean_average_precision(
         precisions = torch.divide(TP_cumsum, (TP_cumsum + FP_cumsum + epsilon))
         precisions = torch.cat((torch.tensor([1]), precisions))
         recalls = torch.cat((torch.tensor([0]), recalls))
-        # torch.trapz for numerical integration
+        # torch.trapz pour l'intégration numérique
         average_precisions.append(torch.trapz(precisions, recalls))
 
     return sum(average_precisions) / len(average_precisions)
 
 
 def plot_image(image, boxes):
-    """Plots predicted bounding boxes on the image"""
+    """Affiche les bboxes prédites sur l'image"""
     im = np.array(image)
     height, width, _ = im.shape
 
-    # Create figure and axes
+    # Crée la figure et les axes
     fig, ax = plt.subplots(1)
-    # Display the image
+    # Affiche l'image
     ax.imshow(im)
 
-    # box[0] is x midpoint, box[2] is width
-    # box[1] is y midpoint, box[3] is height
+    # box[0] est le x midpoint, box[2] est la largeur
+    # box[1] est le y midpoint, box[3] est la hauteur
 
-    # Create a Rectangle potch
+    # Crée un Rectangle potch
     for box in boxes:
         box = box[2:]
         assert len(box) == 4, "Got more values than in x, y, w, h, in a box!"
@@ -215,7 +220,7 @@ def plot_image(image, boxes):
             edgecolor="r",
             facecolor="none",
         )
-        # Add the patch to the Axes
+        # Ajoute le patch aux axes
         ax.add_patch(rect)
 
     plt.show()
@@ -232,7 +237,7 @@ def get_bboxes(
     all_pred_boxes = []
     all_true_boxes = []
 
-    # make sure model is in eval before get bboxes
+    # assurez-vous que le model est en eval avant de get bboxes
     model.eval()
     train_idx = 0
 
@@ -264,7 +269,7 @@ def get_bboxes(
                 all_pred_boxes.append([train_idx] + nms_box)
 
             for box in true_bboxes[idx]:
-                # many will get converted to 0 pred
+                # beaucoup seront convertis en 0 pred
                 if box[1] > threshold:
                     all_true_boxes.append([train_idx] + box)
 
@@ -277,13 +282,13 @@ def get_bboxes(
 
 def convert_cellboxes(predictions, S=7):
     """
-    Converts bounding boxes output from Yolo with
+    Convertit les bboxes de sortie de Yolo avec
     an image split size of S into entire image ratios
-    rather than relative to cell ratios. Tried to do this
-    vectorized, but this resulted in quite difficult to read
-    code... Use as a black box? Or implement a more intuitive,
-    using 2 for loops iterating range(S) and convert them one
-    by one, resulting in a slower but more readable implementation.
+    plutôt que relative aux cellules. Essayé de faire cela
+    vectorisé, mais cela a donné un code assez difficile à lire
+    ... Utiliser comme une boîte noire? Ou implémenter un plus intuitif,
+    en utilisant 2 boucles for iterant range(S) et converti les uns après les autres,
+    ce qui donne un code plus lent mais plus lisible.
     """
 
     predictions = predictions.to("cpu")
@@ -326,12 +331,12 @@ def cellboxes_to_boxes(out, S=7):
 
     return all_bboxes
 
-def save_checkpoint(state, filename="my_checkpoint.pth.tar"):
-    print("=> Saving checkpoint")
+def save_checkpoint(state, filename="mon_checkpoint.pth.tar"):
+    print("=> Sauvegarde du checkpoint")
     torch.save(state, filename)
 
 
 def load_checkpoint(checkpoint, model, optimizer):
-    print("=> Loading checkpoint")
+    print("=> Chargement du checkpoint")
     model.load_state_dict(checkpoint["state_dict"])
     optimizer.load_state_dict(checkpoint["optimizer"])

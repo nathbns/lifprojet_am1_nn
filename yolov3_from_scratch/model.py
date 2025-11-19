@@ -1,9 +1,12 @@
+"""
+Model YoloV3
+"""
+
 import torch
 import torch.nn as nn
 
-
 class CNN(nn.Module):
-    """Convolutional block with BatchNorm and LeakyReLU"""
+    """Bloc de convolution avec BatchNorm et LeakyReLU"""
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, bn_act=True):
         super().__init__()
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, bias=not bn_act)
@@ -19,7 +22,7 @@ class CNN(nn.Module):
 
 
 class ResidualBlock(nn.Module):
-    """Residual block with skip connection"""
+    """Bloc résiduel avec connexion de saut"""
     def __init__(self, channels, num_repeats=1):
         super().__init__()
         self.layers = nn.ModuleList()
@@ -38,7 +41,7 @@ class ResidualBlock(nn.Module):
 
 
 class ScalePrediction(nn.Module):
-    """Scale prediction block for YOLO output"""
+    """Prédiction d'échelle pour la sortie YOLO"""
     def __init__(self, in_channels, num_classes):
         super().__init__()
         self.pred = nn.Sequential(
@@ -56,7 +59,7 @@ class ScalePrediction(nn.Module):
 
 
 class YOLOv3(nn.Module):
-    """YOLOv3 architecture with explicit layers"""
+    """Architecture YOLOv3 avec des couches explicites"""
     def __init__(self, in_channels=3, num_classes=20):
         super().__init__()
         self.num_classes = num_classes

@@ -1,3 +1,7 @@
+"""
+Fichier d'entraînement du YOLOv1
+"""
+
 import torch
 import torchvision.transforms as transforms
 import torch.optim as optim
@@ -31,7 +35,7 @@ EPOCHS = 50
 NUM_WORKERS = 4
 PIN_MEMORY = True
 LOAD_MODEL = False
-LOAD_MODEL_FILE = "checkpoint_epoch_50.pth.tar"
+LOAD_MODEL_FILE = "checkpoint_epoch_50.pth.tar" # le model pas present dans le dossier (voir readme pour le telecharger)
 
 # config pour les data import de kaggle dans ma session colab
 KAGGLE_DATA_PATH = os.environ.get("KAGGLE_DATA_PATH", None)
