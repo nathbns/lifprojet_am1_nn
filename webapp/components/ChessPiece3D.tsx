@@ -43,7 +43,7 @@ export default function ChessPiece3D() {
     const updateColor = () => {
       const isDarkMode = document.documentElement.classList.contains('dark');
       // Noir en mode clair, blanc en mode sombre
-      setPieceColor(isDarkMode ? '#ffffff' : '#000000');
+      setPieceColor(isDarkMode ? '#ffffff' : '#757575');
     };
 
     // Mettre à jour au chargement
@@ -98,4 +98,3 @@ export default function ChessPiece3D() {
     </div>
   );
 }
-
