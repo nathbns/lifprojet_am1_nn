@@ -32,7 +32,7 @@ export default function YoloPage() {
     if (!imageDataUrl) return
     setIsLoading(true)
     try {
-      // Appel direct Gradio côté client (évite la limite de taille Vercel)
+      // Appel direct Gradio côté client (évite la limite de taille Vercel), pas le choix sinon vercel payant est necessite
       const result = await predictYoloFromSpace(imageDataUrl, {
         confidence_threshold: threshold,
         iou_threshold: iou,
@@ -360,7 +360,7 @@ export default function YoloPage() {
                                 return;
                               }
                               
-                              // Si la confiance est entre 0 et 1 (format 0.83), multiplier par 100
+                              // Si la confiance est entre 0 et 1, multiplier par 100
                               let confidence = parseFloat(confidenceStr);
                               if (confidence <= 1 && confidence > 0) {
                                 confidence = confidence * 100;

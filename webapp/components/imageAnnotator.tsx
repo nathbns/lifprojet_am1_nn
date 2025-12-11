@@ -1,8 +1,11 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
-import { Copy, Download } from "lucide-react";
+import { Copy, Download, Tag, Trash2, MousePointer2, Square, Info, ImageIcon, X } from "lucide-react";
 import { FileUpload } from "@/components/ui/file-upload";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Highlighter } from "@/components/ui/highlighter";
 
 interface Box {
   x: number;
@@ -18,93 +21,113 @@ interface ImageAnnotatorProps {
 }
 
 export default function ImageAnnotator({ labels, title }: ImageAnnotatorProps) {
-  // Image chargée par l’utilisateur (DataURL)
   const [image, setImage] = useState<string | null>(null);
-
-  // Liste des zones annotées
+  const [imageSize, setImageSize] = useState<{ width: number; height: number }>({ width: 800, height: 600 });
   const [boxes, setBoxes] = useState<Box[]>([]);
-
-  // Indice du rectangle actuellement sélectionné
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-
-  // États utilisés pour dessiner un nouveau rectangle
   const [isDrawing, setIsDrawing] = useState(false);
   const [start, setStart] = useState<{ x: number; y: number } | null>(null);
   const [currentBox, setCurrentBox] = useState<Box | null>(null);
-
-  // Label attribué au prochain rectangle créé
-  const [selectedLabel, setSelectedLabel] = useState(labels[0]);
-
-  // Référence au canvas de dessin
+  const [selectedPieceType, setSelectedPieceType] = useState(labels[0]);
+  const [selectedColor, setSelectedColor] = useState<"white" | "black">("white");
   const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  // États dédiés au redimensionnement d’un rectangle existant
+  const containerRef = useRef<HTMLDivElement>(null);
   const [resizingIndex, setResizingIndex] = useState<number | null>(null);
   const [resizeCorner, setResizeCorner] = useState<"tl" | "tr" | "bl" | "br" | null>(null);
+  const [displaySize, setDisplaySize] = useState<{ width: number; height: number }>({ width: 800, height: 600 });
 
-  // Chargement d’image via FileUpload
-  // Stockée directement en DataURL pour un rendu immédiat
+  // Combiner couleur + type pour créer le label final
+  const selectedLabel = `${selectedColor}_${selectedPieceType}`;
+
+  // Charger l'image et calculer ses dimensions
   function handleImageUpload(files: File[]) {
     if (files.length > 0) {
       const reader = new FileReader();
-      reader.onload = () => setImage(reader.result as string);
+      reader.onload = () => {
+        const img = new window.Image();
+        img.onload = () => {
+          setImageSize({ width: img.width, height: img.height });
+          setImage(reader.result as string);
+        };
+        img.src = reader.result as string;
+      };
       reader.readAsDataURL(files[0]);
     }
   }
 
-  // Déclenché lorsqu’on commence à tirer sur un coin de rectangle
+  // Calculer la taille d'affichage responsive
+  useEffect(() => {
+    function updateDisplaySize() {
+      if (!containerRef.current || !image) return;
+      
+      const containerWidth = containerRef.current.clientWidth;
+      const maxWidth = Math.min(containerWidth - 32, 900); // padding
+      const aspectRatio = imageSize.height / imageSize.width;
+      
+      let width = Math.min(imageSize.width, maxWidth);
+      let height = width * aspectRatio;
+      
+      // Limiter la hauteur sur mobile
+      const maxHeight = window.innerHeight * 0.6;
+      if (height > maxHeight) {
+        height = maxHeight;
+        width = height / aspectRatio;
+      }
+      
+      setDisplaySize({ width, height });
+    }
+
+    updateDisplaySize();
+    window.addEventListener("resize", updateDisplaySize);
+    return () => window.removeEventListener("resize", updateDisplaySize);
+  }, [image, imageSize]);
+
+  // Calculer le ratio pour convertir les coordonnées
+  const scaleRatio = displaySize.width / imageSize.width;
+
   function handleMouseDownResize(index: number, corner: "tl" | "tr" | "bl" | "br", e: React.MouseEvent) {
-    e.stopPropagation(); // Évite d’activer le dessin en même temps
+    e.stopPropagation();
     setResizingIndex(index);
     setResizeCorner(corner);
   }
 
-  // Gestion centralisée des mouvements et relâchements souris
-  // Permet de continuer à suivre les interactions même si le curseur sort du canvas
   useEffect(() => {
     function handleWindowMouseMove(e: MouseEvent) {
-      // Mode redimensionnement
       if (resizingIndex !== null && resizeCorner !== null) {
         const canvas = canvasRef.current;
         if (!canvas) return;
 
         const rect = canvas.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
+        const mouseX = (e.clientX - rect.left) / scaleRatio;
+        const mouseY = (e.clientY - rect.top) / scaleRatio;
 
-        // Mise à jour du rectangle ciblé selon le coin tiré
         setBoxes((prev) => {
           const newBoxes = [...prev];
           const box = { ...newBoxes[resizingIndex] };
 
           switch (resizeCorner) {
             case "tl":
-              // Ajustement depuis le coin supérieur-gauche
               box.width += box.x - mouseX;
               box.height += box.y - mouseY;
               box.x = mouseX;
               box.y = mouseY;
               break;
             case "tr":
-              // Ajustement depuis le coin supérieur-droit
               box.width = mouseX - box.x;
               box.height += box.y - mouseY;
               box.y = mouseY;
               break;
             case "bl":
-              // Ajustement depuis le coin inférieur-gauche
               box.width += box.x - mouseX;
               box.x = mouseX;
               box.height = mouseY - box.y;
               break;
             case "br":
-              // Ajustement depuis le coin inférieur-droit
               box.width = mouseX - box.x;
               box.height = mouseY - box.y;
               break;
           }
 
-          // Empêche les rectangles trop petits d’être créés
           box.width = Math.max(5, box.width);
           box.height = Math.max(5, box.height);
 
@@ -114,17 +137,15 @@ export default function ImageAnnotator({ labels, title }: ImageAnnotatorProps) {
         return;
       }
 
-      // Mode dessin (création d’un nouveau rectangle)
       if (!isDrawing || !start) return;
 
       const canvas = canvasRef.current;
       if (!canvas) return;
 
       const rect = canvas.getBoundingClientRect();
-      const endX = e.clientX - rect.left;
-      const endY = e.clientY - rect.top;
+      const endX = (e.clientX - rect.left) / scaleRatio;
+      const endY = (e.clientY - rect.top) / scaleRatio;
 
-      // Rectangle dynamique affiché en prévisualisation
       setCurrentBox({
         x: Math.min(start.x, endX),
         y: Math.min(start.y, endY),
@@ -135,29 +156,26 @@ export default function ImageAnnotator({ labels, title }: ImageAnnotatorProps) {
     }
 
     function handleWindowMouseUp(e: MouseEvent) {
-      // Fin du redimensionnement
       if (resizingIndex !== null) {
         setResizingIndex(null);
         setResizeCorner(null);
         return;
       }
 
-      // Fin du dessin d’une nouvelle zone
       if (!isDrawing || !start) return;
 
       const canvas = canvasRef.current;
       if (!canvas) return;
 
       const rect = canvas.getBoundingClientRect();
-      const endX = e.clientX - rect.left;
-      const endY = e.clientY - rect.top;
+      const endX = (e.clientX - rect.left) / scaleRatio;
+      const endY = (e.clientY - rect.top) / scaleRatio;
 
       const x = Math.min(start.x, endX);
       const y = Math.min(start.y, endY);
       const width = Math.abs(endX - start.x);
       const height = Math.abs(endY - start.y);
 
-      // N’enregistre que les rectangles d’une taille raisonnable
       if (width > 5 && height > 5) {
         setBoxes((prev) => [...prev, { x, y, width, height, label: selectedLabel }]);
       }
@@ -173,24 +191,25 @@ export default function ImageAnnotator({ labels, title }: ImageAnnotatorProps) {
       window.removeEventListener("mousemove", handleWindowMouseMove);
       window.removeEventListener("mouseup", handleWindowMouseUp);
     };
-  }, [isDrawing, start, resizingIndex, resizeCorner, selectedLabel]);
+  }, [isDrawing, start, resizingIndex, resizeCorner, selectedLabel, scaleRatio]);
 
-  // Début d’un nouveau rectangle
   function handleMouseDown(e: React.MouseEvent<HTMLCanvasElement>) {
     if (!image) return;
     const rect = e.currentTarget.getBoundingClientRect();
     setIsDrawing(true);
-    setStart({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+    setStart({ 
+      x: (e.clientX - rect.left) / scaleRatio, 
+      y: (e.clientY - rect.top) / scaleRatio 
+    });
     setSelectedIndex(null);
   }
 
-  // Mise à jour du rectangle temporaire (mirroir de useEffect pour le canvas)
   function handleMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
     if (!isDrawing || !start) return;
 
     const rect = e.currentTarget.getBoundingClientRect();
-    const endX = e.clientX - rect.left;
-    const endY = e.clientY - rect.top;
+    const endX = (e.clientX - rect.left) / scaleRatio;
+    const endY = (e.clientY - rect.top) / scaleRatio;
 
     setCurrentBox({
       x: Math.min(start.x, endX),
@@ -201,21 +220,50 @@ export default function ImageAnnotator({ labels, title }: ImageAnnotatorProps) {
     });
   }
 
-  // Sélection d’un rectangle existant pour édition
-  function handleSelectBox(index: number) {
+  function handleSelectBox(index: number, e: React.MouseEvent) {
+    e.stopPropagation();
     setSelectedIndex(index);
   }
 
-  // Mise à jour du label sur un rectangle existant
-  function updateSelectedLabel(newLabel: string) {
-    if (selectedIndex === null) return;
+  // Parser un label pour extraire couleur et type
+  function parseLabel(label: string): { color: "white" | "black"; type: string } {
+    if (label.startsWith("white_")) {
+      return { color: "white", type: label.replace("white_", "") };
+    } else if (label.startsWith("black_")) {
+      return { color: "black", type: label.replace("black_", "") };
+    }
+    // Fallback pour les anciens labels sans couleur
+    return { color: "white", type: label };
+  }
 
+  function updateSelectedBoxColor(newColor: "white" | "black") {
+    if (selectedIndex === null) return;
     setBoxes((prev) =>
-      prev.map((b, i) => (i === selectedIndex ? { ...b, label: newLabel } : b))
+      prev.map((b, i) => {
+        if (i !== selectedIndex) return b;
+        const { type } = parseLabel(b.label);
+        return { ...b, label: `${newColor}_${type}` };
+      })
     );
   }
 
-  // Suppression d’un rectangle via Delete / Backspace
+  function updateSelectedBoxType(newType: string) {
+    if (selectedIndex === null) return;
+    setBoxes((prev) =>
+      prev.map((b, i) => {
+        if (i !== selectedIndex) return b;
+        const { color } = parseLabel(b.label);
+        return { ...b, label: `${color}_${newType}` };
+      })
+    );
+  }
+
+  function deleteSelectedBox() {
+    if (selectedIndex === null) return;
+    setBoxes((prev) => prev.filter((_, i) => i !== selectedIndex));
+    setSelectedIndex(null);
+  }
+
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.key === "Delete" || e.key === "Backspace") && selectedIndex !== null) {
@@ -227,39 +275,146 @@ export default function ImageAnnotator({ labels, title }: ImageAnnotatorProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedIndex]);
 
-  // Rendu global du composant
+  function clearImage() {
+    setImage(null);
+    setBoxes([]);
+    setSelectedIndex(null);
+  }
+
   return (
-    <div className="min-h-screen bg-background p-8 space-y-6 select-none text-foreground">
-      {/* Titre optionnel */}
-      {title && <h1 className="text-3xl font-bold">{title}</h1>}
+    <div className="min-h-screen py-4 sm:py-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Header */}
+        <div className="mb-6 sm:mb-8 text-center">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-2">
+            {title ? (
+              <>
+                {title.split(" - ")[0]}
+                {title.includes(" - ") && (
+                  <>
+                    {" - "}
+                    <Highlighter action="highlight" color="#c9c9c9" padding={3}>
+                      <span className="text-background">{title.split(" - ")[1]}</span>
+                    </Highlighter>
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                Annotation d&apos;
+                <Highlighter action="highlight" color="#c9c9c9" padding={3}>
+                  <span className="text-background">Image</span>
+                </Highlighter>
+              </>
+            )}
+          </h1>
+          <p className="text-muted-foreground text-sm sm:text-base">
+            <Highlighter action="underline" color="#c9c9c9" padding={3}>
+              Dessinez des rectangles
+            </Highlighter>
+            {" "}sur l&apos;image pour annoter les objets
+          </p>
+        </div>
 
-      {/* Import d’image */}
+        {/* Bento Grid Layout */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          
+          {/* Row 1: Image + Zone d'annotation */}
+          {/* Image Card */}
+          <Card className="md:col-span-1 lg:col-span-1">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <ImageIcon className="h-4 w-4" />
+                Image
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {!image ? (
       <FileUpload onChange={handleImageUpload} />
+              ) : (
+                <div className="space-y-3">
+                  <div className="relative aspect-square bg-muted/50 overflow-hidden">
+                    <Image 
+                      src={image} 
+                      alt="Thumbnail" 
+                      fill 
+                      className="object-contain"
+                    />
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="w-full text-xs"
+                    onClick={clearImage}
+                  >
+                    <X className="h-3 w-3 mr-1" />
+                    Changer
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-      {/* Choix du label pour les prochaines annotations */}
-      <select
-        value={selectedLabel}
-        onChange={(e) => setSelectedLabel(e.target.value)}
-        className="border border-border bg-background text-foreground px-2 py-1"
-      >
-        {labels.map((l) => (
-          <option key={l}>{l}</option>
-        ))}
-      </select>
+          {/* Zone d'annotation Card - Plus large */}
+          <Card className="md:col-span-1 lg:col-span-3 md:row-span-2">
+            <CardHeader className="pb-3">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div>
+                  <CardTitle className="text-sm">Zone d&apos;annotation</CardTitle>
+                  <CardDescription className="text-xs">
+                    {boxes.length} annotation{boxes.length !== 1 ? "s" : ""}
+                  </CardDescription>
+                </div>
+                {image && boxes.length > 0 && (
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => navigator.clipboard.writeText(JSON.stringify(boxes, null, 2))}
+                    >
+                      <Copy className="h-3 w-3 mr-1" />
+                      Copier
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => {
+                        const blob = new Blob([JSON.stringify(boxes, null, 2)], { type: "application/json" });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = "annotations.json";
+                        a.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                    >
+                      <Download className="h-3 w-3 mr-1" />
+                      JSON
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent ref={containerRef}>
+              {image ? (
+                <div 
+                  className="relative border border-border mx-auto select-none"
+                  style={{ width: displaySize.width, height: displaySize.height }}
+                >
+                  <Image 
+                    src={image} 
+                    alt="To annotate" 
+                    fill
+                    className="object-contain pointer-events-none"
+                    sizes={`${displaySize.width}px`}
+                  />
 
-      {/* Zone d’annotation avec image + canvas + overlays */}
-      <div className="flex justify-center">
-        <div className="relative border border-border inline-block">
-          {image && (
-            <>
-              {/* Image annotée */}
-              <Image src={image} alt="To annotate" width={800} height={800} />
-
-              {/* Canvas transparent utilisé pour dessiner les rectangles */}
               <canvas
                 ref={canvasRef}
-                width={800}
-                height={800}
+                    width={displaySize.width}
+                    height={displaySize.height}
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMove}
                 className="absolute top-0 left-0 cursor-crosshair"
@@ -269,35 +424,42 @@ export default function ImageAnnotator({ labels, title }: ImageAnnotatorProps) {
               {boxes.map((b, i) => (
                 <div
                   key={i}
-                  onClick={() => handleSelectBox(i)}
-                  className={`absolute text-xs flex items-center justify-center
-                    ${selectedIndex === i ? "border-2 border-red-500" : "border border-blue-500"}
-                    bg-blue-500/20 text-white`}
-                  style={{ left: b.x, top: b.y, width: b.width, height: b.height }}
-                >
-                  {b.label}
+                      onClick={(e) => handleSelectBox(i, e)}
+                      className={`absolute text-[10px] sm:text-xs flex items-center justify-center font-medium transition-all border-2 ${
+                        selectedIndex === i 
+                          ? "border-foreground bg-foreground/20 ring-2 ring-foreground ring-offset-1" 
+                          : "border-muted-foreground bg-muted-foreground/10"
+                      }`}
+                      style={{ 
+                        left: b.x * scaleRatio, 
+                        top: b.y * scaleRatio, 
+                        width: b.width * scaleRatio, 
+                        height: b.height * scaleRatio,
+                      }}
+                    >
+                      <span className="bg-background/90 px-1.5 py-0.5 flex items-center gap-1 text-foreground">
+                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                          b.label.startsWith("white_") 
+                            ? "bg-white border border-gray-400" 
+                            : "bg-gray-900 border border-gray-600"
+                        }`}></span>
+                        <span className="capitalize">{parseLabel(b.label).type}</span>
+                      </span>
 
-                  {/* Poignées de redimensionnement visibles uniquement si sélectionné */}
                   {selectedIndex === i && (
                     <>
-                      {["tl", "tr", "bl", "br"].map((corner) => (
+                          {(["tl", "tr", "bl", "br"] as const).map((corner) => (
                         <div
                           key={corner}
-                          onMouseDown={(e) =>
-                            handleMouseDownResize(i, corner as "tl" | "tr" | "bl" | "br", e)
-                          }
-                          className="absolute bg-white border border-gray-700 w-3 h-3 z-10"
+                              onMouseDown={(e) => handleMouseDownResize(i, corner, e)}
+                              className="absolute w-3 h-3 sm:w-4 sm:h-4 border-2 z-10 bg-foreground border-background"
                           style={{
                             cursor:
-                              corner === "tl"
+                                  corner === "tl" || corner === "br"
                                 ? "nwse-resize"
-                                : corner === "tr"
-                                ? "nesw-resize"
-                                : corner === "bl"
-                                ? "nesw-resize"
-                                : "nwse-resize",
-                            left: corner.includes("r") ? b.width : 0,
-                            top: corner.includes("b") ? b.height : 0,
+                                    : "nesw-resize",
+                                left: corner.includes("r") ? "100%" : 0,
+                                top: corner.includes("b") ? "100%" : 0,
                             transform: "translate(-50%, -50%)",
                           }}
                         />
@@ -310,69 +472,210 @@ export default function ImageAnnotator({ labels, title }: ImageAnnotatorProps) {
               {/* Rectangle temporaire lors du dessin */}
               {currentBox && (
                 <div
-                  className="absolute border border-green-500 bg-green-500/10"
+                      className="absolute border-2 border-dashed border-foreground bg-foreground/10 pointer-events-none"
                   style={{
-                    left: currentBox.x,
-                    top: currentBox.y,
-                    width: currentBox.width,
-                    height: currentBox.height,
+                        left: currentBox.x * scaleRatio,
+                        top: currentBox.y * scaleRatio,
+                        width: currentBox.width * scaleRatio,
+                        height: currentBox.height * scaleRatio,
                   }}
                 />
               )}
-            </>
-          )}
+                </div>
+              ) : (
+                <div className="aspect-video flex items-center justify-center bg-muted/30 border border-dashed border-muted-foreground/30">
+                  <div className="text-center text-muted-foreground">
+                    <ImageIcon className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">Téléchargez une image pour commencer</p>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Row 2: Label + Sélection/Instructions */}
+          {/* Label Selection Card */}
+          <Card className="md:col-span-1 lg:col-span-1">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <Tag className="h-4 w-4" />
+                Label
+              </CardTitle>
+              <CardDescription className="text-xs font-mono">{selectedLabel}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {/* Sélecteur de couleur */}
+              <div>
+                <label className="text-[10px] font-medium mb-1.5 block uppercase tracking-wide text-muted-foreground">Couleur</label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    onClick={() => setSelectedColor("white")}
+                    className={`px-2 py-2 text-xs font-medium transition-all border flex items-center justify-center gap-1.5 ${
+                      selectedColor === "white"
+                        ? "border-foreground bg-foreground text-background"
+                        : "border-muted-foreground/50 hover:border-foreground text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <span className="w-3 h-3 rounded-full bg-white border border-gray-300"></span>
+                    Blanc
+                  </button>
+                  <button
+                    onClick={() => setSelectedColor("black")}
+                    className={`px-2 py-2 text-xs font-medium transition-all border flex items-center justify-center gap-1.5 ${
+                      selectedColor === "black"
+                        ? "border-foreground bg-foreground text-background"
+                        : "border-muted-foreground/50 hover:border-foreground text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <span className="w-3 h-3 rounded-full bg-gray-900 border border-gray-700"></span>
+                    Noir
+                  </button>
         </div>
       </div>
 
-      {/* Panneau d’édition du label d’un rectangle sélectionné */}
-      {selectedIndex !== null && (
-        <div className="flex items-center gap-2 bg-background border border-border px-3 py-2 shadow">
-          <span className="text-sm font-medium">Label sélectionné :</span>
-          <select
-            value={boxes[selectedIndex].label}
-            onChange={(e) => updateSelectedLabel(e.target.value)}
-            className="border border-border bg-background text-foreground px-2 py-1 text-sm"
-          >
-            {labels.map((label) => (
-              <option key={label} value={label}>
+              {/* Sélecteur de type de pièce */}
+              <div>
+                <label className="text-[10px] font-medium mb-1.5 block uppercase tracking-wide text-muted-foreground">Pièce</label>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {labels.map((label) => (
+                    <button
+                      key={label}
+                      onClick={() => setSelectedPieceType(label)}
+                      className={`px-2 py-1.5 text-xs font-medium transition-all border capitalize ${
+                        selectedPieceType === label
+                          ? "border-foreground bg-foreground text-background"
+                          : "border-muted-foreground/50 hover:border-foreground text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
                 {label}
-              </option>
+                    </button>
             ))}
-          </select>
+                </div>
         </div>
-      )}
+            </CardContent>
+          </Card>
 
-      {/* Boutons d’export JSON */}
-      <div className="flex gap-2 items-center mb-2">
-        {/* Copie dans le presse-papiers */}
+          {/* Row 3: Sélection ou Instructions + JSON */}
+          {/* Sélection / Instructions Card */}
+          {selectedIndex !== null && boxes[selectedIndex] ? (() => {
+            const { color: boxColor, type: boxType } = parseLabel(boxes[selectedIndex].label);
+            return (
+              <Card className="md:col-span-1 lg:col-span-2 border-primary/50">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center gap-2 text-sm">
+                      <MousePointer2 className="h-4 w-4" />
+                      Sélection
+                    </CardTitle>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="h-6 text-xs px-2"
+                      onClick={deleteSelectedBox}
+                    >
+                      <Trash2 className="h-3 w-3 mr-1" />
+                      Suppr.
+                    </Button>
+                  </div>
+                  <CardDescription className="text-xs font-mono">{boxes[selectedIndex].label}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* Modifier la couleur */}
+                    <div>
+                      <label className="text-[10px] font-medium mb-1.5 block uppercase tracking-wide text-muted-foreground">Couleur</label>
+                      <div className="grid grid-cols-2 gap-1">
+                        <button
+                          onClick={() => updateSelectedBoxColor("white")}
+                          className={`px-1.5 py-1.5 text-[10px] font-medium transition-all border flex items-center justify-center gap-1 ${
+                            boxColor === "white"
+                              ? "border-foreground bg-foreground text-background"
+                              : "border-muted-foreground/50 hover:border-foreground text-muted-foreground"
+                          }`}
+                        >
+                          <span className="w-2 h-2 rounded-full bg-white border border-gray-300"></span>
+                          Blanc
+                        </button>
         <button
-          onClick={() => navigator.clipboard.writeText(JSON.stringify(boxes, null, 2))}
-          className="flex items-center gap-1 px-1 py-1 bg-white border border-gray-300 text-black rounded-lg shadow-sm hover:bg-gray-100 transition-all text-sm"
-        >
-          <Copy className="w-4 h-4" />
+                          onClick={() => updateSelectedBoxColor("black")}
+                          className={`px-1.5 py-1.5 text-[10px] font-medium transition-all border flex items-center justify-center gap-1 ${
+                            boxColor === "black"
+                              ? "border-foreground bg-foreground text-background"
+                              : "border-muted-foreground/50 hover:border-foreground text-muted-foreground"
+                          }`}
+                        >
+                          <span className="w-2 h-2 rounded-full bg-gray-900 border border-gray-700"></span>
+                          Noir
         </button>
+                      </div>
+                    </div>
 
-        {/* Téléchargement du fichier JSON */}
+                    {/* Modifier le type */}
+                    <div>
+                      <label className="text-[10px] font-medium mb-1.5 block uppercase tracking-wide text-muted-foreground">Type</label>
+                      <div className="grid grid-cols-3 gap-1">
+                        {labels.map((label) => (
         <button
-          onClick={() => {
-            const blob = new Blob([JSON.stringify(boxes, null, 2)], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = "annotations.json";
-            a.click();
-            URL.revokeObjectURL(url);
-          }}
-          className="flex items-center gap-1 px-1 py-1 bg-white border border-gray-300 text-black rounded-lg shadow-sm hover:bg-gray-100 transition-all text-sm"
-        >
-          <Download className="w-4 h-4" />
+                            key={label}
+                            onClick={() => updateSelectedBoxType(label)}
+                            className={`px-1 py-1.5 text-[10px] font-medium transition-all border capitalize ${
+                              boxType === label
+                                ? "border-foreground bg-foreground text-background"
+                                : "border-muted-foreground/50 hover:border-foreground text-muted-foreground"
+                            }`}
+                          >
+                            {label}
         </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })() : (
+            <Card className="md:col-span-1 lg:col-span-2">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-sm">
+                  <Info className="h-4 w-4" />
+                  Instructions
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2">
+                    <Square className="h-3 w-3 flex-shrink-0" />
+                    <span>Dessinez pour annoter</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <MousePointer2 className="h-3 w-3 flex-shrink-0" />
+                    <span>Cliquez pour sélectionner</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Tag className="h-3 w-3 flex-shrink-0" />
+                    <span>Redimensionnez les coins</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* JSON Preview Card */}
+          <Card className="md:col-span-2 lg:col-span-2">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Données JSON</CardTitle>
+              <CardDescription className="text-xs">Format d&apos;export</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <pre className="bg-muted/50 p-2 sm:p-3 text-[9px] sm:text-[10px] font-mono overflow-x-auto max-h-32">
+                {boxes.length > 0 
+                  ? JSON.stringify(boxes, null, 2)
+                  : "// Aucune annotation"}
+              </pre>
+            </CardContent>
+          </Card>
+        </div>
       </div>
-
-      {/* JSON visible en bas de page (aperçu/debug) */}
-      <pre className="bg-background p-4 rounded border border-gray-200 text-foreground text-sm w-[800px] overflow-auto">
-        {JSON.stringify(boxes, null, 2)}
-      </pre>
     </div>
   );
 }

@@ -512,7 +512,7 @@ export default function ChessPage() {
             const correctionBoard = new Chess(tempFenValid)
             setCorrectionGame(correctionBoard)
           } catch (e) {
-            console.error("Fallback correction board creation failed:", e)
+            console.error("erreur correction board:", e)
           }
         }
       } else {
@@ -575,13 +575,11 @@ export default function ChessPage() {
         updateGameStatus(newGame)
         setMoveHistory([])
         setCapturedPieces({ white: [], black: [] })
-        // Ne pas afficher d'erreur: on a accepté le FEN (sanitisation interne)
         setDetectionError("")
         setCurrentMoveIndex(-1)
         setGameMode("config")
       } catch (err2) {
         console.error("Impossible d'initialiser même après sanitisation:", err2)
-        // Dernier recours: ne pas bloquer l'UI; rester sur l'état actuel sans erreur bloquante
       }
     }
   }
@@ -826,7 +824,7 @@ export default function ChessPage() {
         parseInt(fenParts[5]) || 1
       )
       
-      // Essayer de créer un Chess avec le nouveau FEN
+      // création partie avec le FEN
       // Si ça échoue (FEN invalide), on ajoute temporairement les rois manquants pour l'affichage
       let newGame: Chess
       try {
@@ -1056,7 +1054,7 @@ ${moveHistory.map((move, idx) => {
             {" "}de jeu et commencez à jouer
           </p>
           
-          {/* Mode Switch - Discret */}
+          {/* Switch - Discret */}
           {(gameMode === "image" || gameMode === "config") && (
             <div className="inline-flex items-center gap-2 bg-muted/30 p-1">
               <Button
@@ -1073,7 +1071,7 @@ ${moveHistory.map((move, idx) => {
         </div>
 
 
-        {/* Content based on mode */}
+        {/* game mode */}
         {gameMode === "config" ? (
           /* Configuration de la partie */
           <div className="w-full max-w-4xl mx-auto px-4">
