@@ -79,7 +79,7 @@ pip install -r requirements.txt
 | `wand` | Conversion SVG vers PNG pour la visualisation |
 | `pyclipper` | Opérations géométriques sur polygones |
 
-**Note :** Le fichier de poids `src/model_weights.weights.h5` est déjà inclus dans le dépôt. Vous pouvez directement effectuer des inférences sans réentraîner.
+**Note :** Pour upload les poids de notre modeles https://huggingface.co/nathbns/yoco_tf
 
 ---
 
@@ -228,20 +228,15 @@ Le pipeline transforme une photo brute en une position FEN en plusieurs étapes 
 
 ### A propos du prétraitement
 
-Le pipeline de prétraitement (SLID, LAPS, extraction de coins) est **inspiré** du projet [neural-chessboard](https://github.com/maciejczyzewski/neural-chessboard), mais nous avons dû **réécrire et adapter significativement** le code pour notre cas d'usage :
+Le pipeline de prétraitement (SLID, LAPS, extraction de coins) est **inspiré de l'approche** du projet [laps](https://github.com/maciejczyzewski/neural-chessboard/tree/draft/deps)
 
-- Le code original ne fonctionnait pas directement avec notre dataset et notre architecture
-- Nous avons réimplémenté les algorithmes de détection de lignes et d'extraction des coins dans `src/detection/`
-- Les fonctions géométriques et le modèle LAPS (dans `deps/`) ont été adaptés pour s'intégrer à notre pipeline
-- Le système de scoring des quadrilatères et la rectification de perspective ont été entièrement retravaillés
-
-Seuls les **poids pré-entraînés du modèle LAPS** (réseau de validation des intersections) proviennent du projet original. Tout le reste du code de prétraitement a été développé par nos soins pour fonctionner avec notre modèle CNN.
+Seuls les **poids pré-entraînés du modèle LAPS** (réseau de validation des intersections) proviennent du projet original. Tout le reste du code de prétraitement a été développé par nos soins pour fonctionner avec notre modèle CNN. Nous aurions pu ré-entrainer ce modele, mais étant donnée que c'étais un CNN léger nous aurions eu les memes resultat sans réelle apprentissage ou aboutissant supplémentaire pour notre projet.
 
 ---
 
 ## Données et modèle
 
-### Dataset YOCO
+### Dataset YOCO (Faite par nous memes)
 
 - **670 photos** d'un échiquier réel prises sous différents angles
 - **Labellisation automatique** via alignement avec les fichiers PGN
@@ -284,13 +279,6 @@ Output: classe parmi 13
 - Epoques : 10
 - Batch size : 16
 - Split : 80% train / 10% val / 10% test
-
----
-
-## Références
-
-- **Inspiration pour le prétraitement** : [neural-chessboard](https://github.com/maciejczyzewski/neural-chessboard) - Nous avons utilisé les poids pré-entraînés du modèle LAPS pour la validation des intersections, mais le reste du code de prétraitement a été réécrit et adapté pour notre pipeline.
-- **Algorithme SLID** : pipeline classique de vision par ordinateur pour la détection de lignes structurantes
 
 ---
 
