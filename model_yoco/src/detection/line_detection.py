@@ -1,196 +1,464 @@
+"""
+Module de détection des lignes de l'échiquier.
+
+Ce module implémente l'algorithme SLID (Straight Line Detector) adapté
+pour la détection des lignes d'un échiquier dans une image.
+
+L'approche utilise :
+1. Amélioration du contraste avec CLAHE (Contrast Limited Adaptive Histogram Equalization)
+2. Détection de contours avec Canny
+3. Détection de lignes avec la transformée de Hough probabiliste
+4. Regroupement des lignes similaires avec Union-Find
+"""
+
 import numpy as np
 import cv2
+from typing import List, Tuple, Dict, Set, Optional
+from dataclasses import dataclass
+
+Point = Tuple[int, int]
+LineSegment = List[Point]  # [[x1, y1], [x2, y2]]
 
 
-arr = np.array
-CLAHE_PARAMS = [[3,   (2, 6),    5],  # @1
-                [3,   (6, 2),    5],  # @2
-                [5,   (3, 3),    5],  # @3
-                [0,   (0, 0),    0]]  # EE
+@dataclass
+class CLAHEConfig:
+    """Configuration pour l'algorithme CLAHE."""
+    clip_limit: int
+    grid_size: Tuple[int, int]
+    iterations: int
 
 
-def slid_clahe(img, limit=2, grid=(3, 3), iters=5):
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    for i in range(iters):
-        img = cv2.createCLAHE(clipLimit=limit,
-                              tileGridSize=grid).apply(img)
-    if limit != 0:
+# Configurations CLAHE optimisées pour la détection d'échiquiers
+# Chaque configuration capture différents aspects des lignes
+YOCO_CLAHE_CONFIGS = [
+    CLAHEConfig(clip_limit=3, grid_size=(2, 6), iterations=5),  # Lignes horizontales
+    CLAHEConfig(clip_limit=3, grid_size=(6, 2), iterations=5),  # Lignes verticales
+    CLAHEConfig(clip_limit=5, grid_size=(3, 3), iterations=5),  # Équilibré
+    CLAHEConfig(clip_limit=0, grid_size=(0, 0), iterations=0),  # Sans amélioration
+]
+
+
+def yoco_apply_clahe_enhancement(
+    image: np.ndarray,
+    config: CLAHEConfig
+) -> np.ndarray:
+    """
+    Applique l'amélioration de contraste CLAHE à une image.
+    
+    CLAHE améliore le contraste local de l'image, ce qui aide
+    à mieux détecter les lignes de l'échiquier.
+    
+    Args:
+        image: Image BGR en entrée
+        config: Configuration CLAHE à appliquer
+        
+    Returns:
+        Image en niveaux de gris avec contraste amélioré
+    """
+    # Convertit en niveaux de gris
+    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    
+    # Cas sans amélioration
+    if config.clip_limit == 0:
+        return gray_image
+    
+    # Applique CLAHE plusieurs fois pour renforcer le contraste
+    enhanced_image = gray_image.copy()
+    for _ in range(config.iterations):
+        clahe = cv2.createCLAHE(
+            clipLimit=config.clip_limit,
+            tileGridSize=config.grid_size
+        )
+        enhanced_image = clahe.apply(enhanced_image)
+    
+    # Applique une fermeture morphologique pour connecter les lignes
         kernel = np.ones((10, 10), np.uint8)
-        img = cv2.morphologyEx(img, cv2.MORPH_CLOSE, kernel)
-    return img
+    enhanced_image = cv2.morphologyEx(enhanced_image, cv2.MORPH_CLOSE, kernel)
+    
+    return enhanced_image
 
 
-def slid_detector(img, alfa=150, beta=2):
-    __lines, lines = [], cv2.HoughLinesP(img, rho=1, theta=np.pi/360*beta,
-                                         threshold=40, minLineLength=50, maxLineGap=15)  # [40, 40, 10]
+def yoco_detect_edges_canny(
+    image: np.ndarray,
+    sigma: float = 0.25
+) -> np.ndarray:
+    """
+    Détecte les contours avec l'algorithme de Canny.
+    
+    Utilise des seuils automatiques basés sur la médiane
+    de l'image pour s'adapter à différentes conditions d'éclairage.
+    
+    Args:
+        image: Image en niveaux de gris
+        sigma: Paramètre pour calculer les seuils (0.25 par défaut)
+        
+    Returns:
+        Image binaire des contours
+    """
+    # Calcule les seuils basés sur la médiane
+    median_value = np.median(image)
+    lower_threshold = int(max(0, (1.0 - sigma) * median_value))
+    upper_threshold = int(min(255, (1.0 + sigma) * median_value))
+    
+    # Applique un flou pour réduire le bruit
+    blurred = cv2.medianBlur(image, 5)
+    blurred = cv2.GaussianBlur(blurred, (7, 7), 2)
+    
+    # Détecte les contours
+    edges = cv2.Canny(blurred, lower_threshold, upper_threshold)
+    
+    return edges
+
+
+def yoco_detect_lines_hough(
+    edge_image: np.ndarray,
+    threshold: int = 40,
+    min_line_length: int = 50,
+    max_line_gap: int = 15
+) -> List[LineSegment]:
+    """
+    Détecte les lignes avec la transformée de Hough probabiliste.
+    
+    Args:
+        edge_image: Image binaire des contours
+        threshold: Seuil minimum de votes
+        min_line_length: Longueur minimale des lignes
+        max_line_gap: Écart maximum entre segments d'une même ligne
+        
+    Returns:
+        Liste des segments de lignes détectés
+    """
+    lines = cv2.HoughLinesP(
+        edge_image,
+        rho=1,
+        theta=np.pi / 180,  # Résolution angulaire de 1 degré
+        threshold=threshold,
+        minLineLength=min_line_length,
+        maxLineGap=max_line_gap
+    )
+    
     if lines is None:
         return []
-    for line in np.reshape(lines, (-1, 4)):
-        __lines += [[[int(line[0]), int(line[1])],
-                     [int(line[2]), int(line[3])]]]
-    return __lines
+    
+    # Convertit au format [[x1, y1], [x2, y2]]
+    detected_lines = []
+    for line in lines.reshape(-1, 4):
+        segment = [[int(line[0]), int(line[1])], [int(line[2]), int(line[3])]]
+        detected_lines.append(segment)
+    
+    return detected_lines
 
 
-def slid_canny(img, sigma=0.25):
-    v = np.median(img)
-    img = cv2.medianBlur(img, 5)
-    img = cv2.GaussianBlur(img, (7, 7), 2)
-    lower = int(max(0, (1.0 - sigma) * v))
-    upper = int(min(255, (1.0 + sigma) * v))
-    return cv2.Canny(img, lower, upper)
+def yoco_collect_line_segments(image: np.ndarray) -> List[LineSegment]:
+    """
+    Collecte tous les segments de lignes avec différentes configurations CLAHE.
+    
+    Applique plusieurs configurations pour capturer le maximum de lignes
+    dans différentes conditions.
+    
+    Args:
+        image: Image BGR de l'échiquier
+        
+    Returns:
+        Liste de tous les segments détectés
+    """
+    all_segments = []
+    
+    for config in YOCO_CLAHE_CONFIGS:
+        # Améliore le contraste
+        enhanced = yoco_apply_clahe_enhancement(image, config)
+        
+        # Détecte les contours
+        edges = yoco_detect_edges_canny(enhanced)
+        
+        # Détecte les lignes
+        segments = yoco_detect_lines_hough(edges)
+        all_segments.extend(segments)
+    
+    return all_segments
 
 
-def pSLID(img, thresh=150):
-    segments = []
-    i = 0
-    for key, arr in enumerate(CLAHE_PARAMS):
-        tmp = slid_clahe(img, limit=arr[0], grid=arr[1], iters=arr[2])
-        curr_segments = list(slid_detector(slid_canny(tmp), thresh))
-        segments += curr_segments
-        i += 1
-    return segments
+class UnionFind:
+    """
+    Structure Union-Find pour regrouper les lignes similaires.
+    
+    Permet de fusionner efficacement des ensembles de lignes
+    qui représentent la même ligne de l'échiquier.
+    """
+    
+    def __init__(self):
+        self.parent: Dict[int, int] = {}
+        self.groups: Dict[int, Set[int]] = {}
+    
+    def find(self, x: int) -> int:
+        """Trouve le représentant du groupe de x."""
+        if x not in self.parent:
+            self.parent[x] = x
+            self.groups[x] = {x}
+        
+        # Compression de chemin
+        if self.parent[x] != x:
+            self.parent[x] = self.find(self.parent[x])
+        
+        return self.parent[x]
+    
+    def union(self, a: int, b: int) -> None:
+        """Fusionne les groupes de a et b."""
+        root_a = self.find(a)
+        root_b = self.find(b)
+        
+        if root_a != root_b:
+            # Fusionne le plus petit groupe dans le plus grand
+            if len(self.groups[root_a]) < len(self.groups[root_b]):
+                root_a, root_b = root_b, root_a
+            
+            self.parent[root_b] = root_a
+            self.groups[root_a] |= self.groups[root_b]
 
 
-all_points = []
+def yoco_calculate_segment_distance(p1: Point, p2: Point) -> float:
+    """Calcule la distance euclidienne entre deux points."""
+    return np.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
 
 
-def SLID(img, segments):
-    global all_points
+def yoco_calculate_point_to_line_distance(
+    line: LineSegment,
+    point: Point
+) -> float:
+    """
+    Calcule la distance perpendiculaire d'un point à une ligne.
+    
+    Args:
+        line: Segment de ligne [[x1, y1], [x2, y2]]
+        point: Point [x, y]
+        
+    Returns:
+        Distance perpendiculaire
+    """
+    line_vec = np.array(line[1]) - np.array(line[0])
+    point_vec = np.array(point) - np.array(line[0])
+    
+    line_length = np.linalg.norm(line_vec)
+    if line_length < 1e-8:
+        return np.linalg.norm(point_vec)
+    
+    cross_product = np.abs(np.cross(line_vec, point_vec))
+    return cross_product / line_length
+
+
+def yoco_are_lines_similar(line1: LineSegment, line2: LineSegment) -> bool:
+    """
+    Détermine si deux segments représentent la même ligne.
+    
+    Deux lignes sont considérées similaires si :
+    - Elles ont une orientation proche
+    - La distance entre elles est faible par rapport à leur longueur
+    
+    Args:
+        line1, line2: Segments à comparer
+        
+    Returns:
+        True si les lignes sont similaires
+    """
+    # Longueurs des segments
+    len1 = yoco_calculate_segment_distance(line1[0], line1[1])
+    len2 = yoco_calculate_segment_distance(line2[0], line2[1])
+    
+    # Distances perpendiculaires
+    d1a = yoco_calculate_point_to_line_distance(line2, line1[0])
+    d1b = yoco_calculate_point_to_line_distance(line2, line1[1])
+    d2a = yoco_calculate_point_to_line_distance(line1, line2[0])
+    d2b = yoco_calculate_point_to_line_distance(line1, line2[1])
+    
+    # Distance moyenne
+    avg_distance = 0.25 * (d1a + d1b + d2a + d2b)
+    
+    # Cas où les lignes sont presque identiques
+    if avg_distance < 1e-8:
+        return True
+    
+    # Seuil basé sur la longueur des lignes
+    threshold = 0.0625 * (len1 + len2)
+    
+    # Les lignes sont similaires si le ratio longueur/distance est suffisant
+    return (len1 / avg_distance > threshold) and (len2 / avg_distance > threshold)
+
+
+def yoco_generate_points_on_segment(
+    start: Point,
+    end: Point,
+    num_points: int = 10
+) -> List[Point]:
+    """Génère des points uniformément répartis sur un segment."""
+    points = []
+    for i in range(num_points):
+        t = i / num_points
+        x = int(start[0] + (end[0] - start[0]) * t)
+        y = int(start[1] + (end[1] - start[1]) * t)
+        points.append([x, y])
+    return points
+
+
+def yoco_fit_line_to_group(
+    segments: List[LineSegment],
+    segment_map: Dict[int, LineSegment]
+) -> LineSegment:
+    """
+    Ajuste une ligne unique à un groupe de segments.
+    
+    Utilise cv2.fitLine pour trouver la meilleure ligne
+    passant par tous les points des segments du groupe.
+    
+    Args:
+        segments: Indices des segments du groupe
+        segment_map: Mapping index -> segment
+        
+    Returns:
+        Segment de ligne ajusté
+    """
+    # Collecte tous les points
     all_points = []
+    for seg_id in segments:
+        segment = segment_map[seg_id]
+        all_points.extend(yoco_generate_points_on_segment(segment[0], segment[1]))
+    
+    if not all_points:
+        return [[0, 0], [0, 0]]
+    
+    points_array = np.array(all_points)
+    
+    # Calcule le rayon englobant pour déterminer la longueur de la ligne
+    _, radius = cv2.minEnclosingCircle(points_array)
+    half_length = radius * np.pi / 2
+    
+    # Ajuste la ligne
+    vx, vy, cx, cy = cv2.fitLine(points_array, cv2.DIST_L2, 0, 0.01, 0.01)
+    
+    # Crée le segment final
+    x1 = int(cx - vx * half_length)
+    y1 = int(cy - vy * half_length)
+    x2 = int(cx + vx * half_length)
+    y2 = int(cy + vy * half_length)
+    
+    return [[x1, y1], [x2, y2]]
 
-    pregroup, group, hashmap, raw_lines = [[], []], {}, {}, []
 
-    dists = {}
-
-    def dist(a, b):
-        h = hash("dist"+str(a)+str(b))
-        if h not in dists:
-            dists[h] = np.linalg.norm(arr(a)-arr(b))
-        return dists[h]
-
-    parents = {}
-
-    def find(x):
-        if x not in parents:
-            parents[x] = x
-        if parents[x] != x:
-            parents[x] = find(parents[x])
-        return parents[x]
-
-    def union(a, b):
-        par_a = find(a)
-        par_b = find(b)
-        parents[par_a] = par_b
-        group[par_b] |= group[par_a]
-
-    def height(line, pt):
-        v = np.cross(arr(line[1])-arr(line[0]), arr(pt)-arr(line[0]))
-        return np.linalg.norm(v)/dist(line[1], line[0])
-
-    def are_similar(l1, l2):
-        a = dist(l1[0], l1[1])
-        b = dist(l2[0], l2[1])
-
-        x1 = height(l2, l1[0])
-        x2 = height(l2, l1[1])
-        y1 = height(l1, l2[0])
-        y2 = height(l1, l2[1])
-
-        if x1 < 1e-8 and x2 < 1e-8 and y1 < 1e-8 and y2 < 1e-8:
-            return True
-
-        gamma = 0.25 * (x1+x2+y1+y2)
-
-        img_width = 500
-        img_height = 282
-        p = 0.
-        A = img_width*img_height
-        w = np.pi/2 / np.sqrt(np.sqrt(A))
-        t_delta = p*w
-        t_delta = 0.0625
-
-        delta = (a+b) * t_delta
-
-        return (a/gamma > delta) and (b/gamma > delta)
-
-    def generate_line(a, b, n):
-        points = []
-        for i in range(n):
-            x = a[0] + (b[0] - a[0]) * (i/n)
-            y = a[1] + (b[1] - a[1]) * (i/n)
-            points += [[int(x), int(y)]]
-        return points
-
-    def analyze(group):
-        global all_points
-        points = []
-        for idx in group:
-            points += generate_line(*hashmap[idx], 10)
-        _, radius = cv2.minEnclosingCircle(arr(points))
-        w = radius * np.pi / 2
-        vx, vy, cx, cy = cv2.fitLine(arr(points), cv2.DIST_L2, 0, 0.01, 0.01)
-        all_points += points
-        return [[int(cx-vx*w), int(cy-vy*w)], [int(cx+vx*w), int(cy+vy*w)]]
-
-    for l in segments:
-        h = hash(str(l))
-        hashmap[h] = l
-        group[h] = set([h])
-        parents[h] = h
-
-        wid = l[0][0] - l[1][0]
-        hei = l[0][1] - l[1][1]
-
-        if abs(wid) < abs(hei):
-            pregroup[0].append(l)
+def yoco_group_similar_lines(segments: List[LineSegment]) -> List[LineSegment]:
+    """
+    Regroupe les segments similaires et fusionne chaque groupe.
+    
+    Args:
+        segments: Liste des segments bruts
+        
+    Returns:
+        Liste des lignes fusionnées
+    """
+    if not segments:
+        return []
+    
+    # Sépare les lignes verticales et horizontales
+    vertical_lines = []
+    horizontal_lines = []
+    
+    segment_map: Dict[int, LineSegment] = {}
+    
+    for idx, segment in enumerate(segments):
+        segment_map[idx] = segment
+        
+        dx = abs(segment[0][0] - segment[1][0])
+        dy = abs(segment[0][1] - segment[1][1])
+        
+        if dx < dy:
+            vertical_lines.append(idx)
         else:
-            pregroup[1].append(l)
-
-    for lines in pregroup:
-        for i in range(len(lines)):
-            l1 = lines[i]
-            h1 = hash(str(l1))
-            if parents[h1] != h1:
-                continue
-            for j in range(i+1, len(lines)):
-                l2 = lines[j]
-                h2 = hash(str(l2))
-                if parents[h2] != h2:
-                    continue
-                if are_similar(l1, l2):
-                    union(h1, h2)
-
-    for h in group:
-        if parents[h] != h:
-            continue
-        raw_lines += [analyze(group[h])]
-
-    return raw_lines
-
-
-def slid_tendency(raw_lines, s=4):
-    lines = []
-    def scale(x, y, s): return int(x * (1+s)/2 + y * (1-s)/2)
-    for a, b in raw_lines:
-        a[0] = scale(a[0], b[0], s)
-        a[1] = scale(a[1], b[1], s)
-        b[0] = scale(b[0], a[0], s)
-        b[1] = scale(b[1], a[1], s)
-        lines += [[a, b]]
-    return lines
+            horizontal_lines.append(idx)
+    
+    # Regroupe avec Union-Find
+    uf = UnionFind()
+    
+    for line_group in [vertical_lines, horizontal_lines]:
+        for i in range(len(line_group)):
+            idx_i = line_group[i]
+            uf.find(idx_i)  # Initialise
+            
+            for j in range(i + 1, len(line_group)):
+                idx_j = line_group[j]
+                
+                if yoco_are_lines_similar(segment_map[idx_i], segment_map[idx_j]):
+                    uf.union(idx_i, idx_j)
+    
+    # Crée les lignes finales
+    final_lines = []
+    processed_roots = set()
+    
+    for idx in segment_map.keys():
+        root = uf.find(idx)
+        if root not in processed_roots:
+            processed_roots.add(root)
+            group_segments = uf.groups[root]
+            fitted_line = yoco_fit_line_to_group(group_segments, segment_map)
+            final_lines.append(fitted_line)
+    
+    return final_lines
 
 
-def yoco_detect_chessboard_lines(image_array):
+def yoco_extend_lines(lines: List[LineSegment], scale: float = 4) -> List[LineSegment]:
+    """
+    Étend les lignes pour qu'elles dépassent les bords de l'échiquier.
+    
+    Cela aide à s'assurer que les intersections aux bords sont détectées.
+    
+    Args:
+        lines: Liste des lignes à étendre
+        scale: Facteur d'extension
+        
+    Returns:
+        Liste des lignes étendues
+    """
+    extended_lines = []
+    
+    def scale_point(x, y, s):
+        return int(x * (1 + s) / 2 + y * (1 - s) / 2)
+    
+    for line in lines:
+        a, b = line[0].copy(), line[1].copy()
+        
+        # Étend dans les deux directions
+        new_a = [scale_point(a[0], b[0], scale), scale_point(a[1], b[1], scale)]
+        new_b = [scale_point(b[0], a[0], scale), scale_point(b[1], a[1], scale)]
+        
+        extended_lines.append([new_a, new_b])
+    
+    return extended_lines
+
+
+def yoco_detect_chessboard_lines(image: np.ndarray) -> List[LineSegment]:
     """
     Détecte les lignes de l'échiquier dans une image.
     
+    Pipeline complet de détection :
+    1. Collecte des segments avec différentes configurations CLAHE
+    2. Regroupement des segments similaires
+    3. Extension des lignes
+    
     Args:
-        image_array: Image dans laquelle détecter les lignes
+        image: Image BGR de l'échiquier
         
     Returns:
-        Liste des lignes détectées
+        Liste des lignes détectées [[x1, y1], [x2, y2]]
+        
+    Example:
+        >>> image = cv2.imread("chessboard.jpg")
+        >>> lines = yoco_detect_chessboard_lines(image)
+        >>> print(f"Détecté {len(lines)} lignes")
     """
-    segments = pSLID(image_array)
-    raw_lines = SLID(image_array, segments)
-    lines = slid_tendency(raw_lines)
-    return lines
+    # Étape 1: Collecte tous les segments
+    segments = yoco_collect_line_segments(image)
+    
+    # Étape 2: Regroupe les segments similaires
+    grouped_lines = yoco_group_similar_lines(segments)
+    
+    # Étape 3: Étend les lignes
+    extended_lines = yoco_extend_lines(grouped_lines)
+    
+    return extended_lines

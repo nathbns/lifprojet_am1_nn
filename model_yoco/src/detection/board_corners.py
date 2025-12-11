@@ -1,298 +1,514 @@
+"""
+Module de détection des coins de l'échiquier.
+
+Ce module implémente l'algorithme de détection des quatre coins
+de l'échiquier à partir des points du réseau et des lignes détectées.
+
+L'approche utilise :
+1. Clustering des points pour identifier le groupe principal
+2. Sélection des lignes candidates pour les bords
+3. Scoring des quadrilatères candidats
+4. Sélection du meilleur quadrilatère
+"""
+
 import sys
 import os
-# Ajoute le répertoire src au path pour les imports relatifs
+import numpy as np
+import cv2
+import math
+import itertools
+import collections
+from typing import List, Tuple, Dict, Optional
+from dataclasses import dataclass
+
+# Configuration des imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
 src_dir = os.path.dirname(current_dir)
 sys.path.insert(0, src_dir)
 
-from detection.lattice_detection import laps_intersections, laps_cluster
-from detection.line_detection import slid_tendency
-import scipy
-import cv2
-import pyclipper
-import numpy as np
-import matplotlib.path
-import matplotlib.pyplot as plt
-import matplotlib.path as mplPath
-import collections
-import itertools
-import random
-import math
-import sklearn.cluster
-from copy import copy
-na = np.array
+from detection.lattice_detection import yoco_find_line_intersections, yoco_cluster_nearby_points
+
+# Import optionnel pour le padding
+try:
+    import pyclipper
+    PYCLIPPER_AVAILABLE = True
+except ImportError:
+    PYCLIPPER_AVAILABLE = False
+    print("Avertissement: pyclipper non disponible, padding désactivé")
+
+try:
+    import sklearn.cluster
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    SKLEARN_AVAILABLE = False
+
+try:
+    import matplotlib.path
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
+
+import scipy.spatial
+
+# Type aliases
+Point = Tuple[float, float]
+IntPoint = List[int]
+LineSegment = List[IntPoint]
+Polygon = List[IntPoint]
 
 
-def llr_normalize(points): return [[int(a), int(b)] for a, b in points]
+def yoco_normalize_points(points: List[Point]) -> List[IntPoint]:
+    """Convertit les points en entiers."""
+    return [[int(a), int(b)] for a, b in points]
 
 
-def llr_correctness(points, shape):
-    __points = []
+def yoco_filter_valid_points(
+    points: List[IntPoint],
+    image_shape: Tuple[int, ...]
+) -> List[IntPoint]:
+    """Filtre les points qui sont dans les limites de l'image."""
+    height, width = image_shape[:2]
+    valid = []
     for pt in points:
-        if pt[0] < 0 or pt[1] < 0 or \
-            pt[0] > shape[1] or \
-                pt[1] > shape[0]:
-            continue
-        __points += [pt]
-    return __points
+        if 0 <= pt[0] <= width and 0 <= pt[1] <= height:
+            valid.append(pt)
+    return valid
 
 
-def llr_unique(a):
-    indices = sorted(range(len(a)), key=a.__getitem__)
-    indices = set(next(it) for k, it in
-                  itertools.groupby(indices, key=a.__getitem__))
-    return [x for i, x in enumerate(a) if i in indices]
-
-
-def llr_polysort(pts):
-    mlat = sum(x[0] for x in pts) / len(pts)
-    mlng = sum(x[1] for x in pts) / len(pts)
-
-    def __sort(x):
-        return (math.atan2(x[0]-mlat, x[1]-mlng) +
-                2*math.pi) % (2*math.pi)
-    pts.sort(key=__sort)
-    return pts
-
-
-def llr_polyscore(cnt, pts, cen, alfa=5, beta=2):
-    a = cnt[0]
-    b = cnt[1]
-    c = cnt[2]
-    d = cnt[3]
-
-    area = cv2.contourArea(cnt)
-    t2 = area < (4 * alfa * alfa) * 5
-    if t2:
-        return 0
-
-    gamma = alfa/1.5
-
-    pco = pyclipper.PyclipperOffset()
-    pco.AddPath(cnt, pyclipper.JT_MITER, pyclipper.ET_CLOSEDPOLYGON)
-    pcnt = matplotlib.path.Path(pco.Execute(gamma)[0])
-    wtfs = pcnt.contains_points(pts)
-    pts_in = min(np.count_nonzero(wtfs), 49)
-    t1 = pts_in < min(len(pts), 49) - 2 * beta - 1
-    if t1:
-        return 0
-
-    A = pts_in
-    B = area
-
-    def nln(l1, x, dx): return \
-        np.linalg.norm(np.cross(na(l1[1])-na(l1[0]),
-                                na(l1[0])-na(x)))/dx
-    pcnt_in = []
-    i = 0
-    for pt in wtfs:
-        if pt:
-            pcnt_in += [pts[i]]
-        i += 1
-
-    def __convex_approx(points, alfa=0.001):
-        hull = scipy.spatial.ConvexHull(na(points)).vertices
-        cnt = na([points[pt] for pt in hull])
-        return cnt
-
-    cnt_in = __convex_approx(na(pcnt_in))
-
-    points = cnt_in
-    x = [p[0] for p in points]
-    y = [p[1] for p in points]
-    cen2 = (sum(x) / len(points),
-            sum(y) / len(points))
-
-    G = np.linalg.norm(na(cen)-na(cen2))
-
-    a = [cnt[0], cnt[1]]
-    b = [cnt[1], cnt[2]]
-    c = [cnt[2], cnt[3]]
-    d = [cnt[3], cnt[0]]
-    lns = [a, b, c, d]
-    E = 0
-    F = 0
-    for l in lns:
-        d = np.linalg.norm(na(l[0])-na(l[1]))
-        for p in cnt_in:
-            r = nln(l, p, d)
-            if r < gamma:
-                E += r
-                F += 1
-    if F == 0:
-        return 0
-    E /= F
-
-    if B == 0 or A == 0:
-        return 0
-
-    C = 1+(E/A)**(1/3)
-    D = 1+(G/A)**(1/5)
-    R = (A**4)/((B**2) * C * D)
-
-    return R
-
-
-def yoco_detect_inner_board_corners(image_array, lattice_points, line_segments):
+def yoco_sort_points_clockwise(points: List[IntPoint]) -> List[IntPoint]:
     """
-    Détecte les coins intérieurs de l'échiquier à partir des points du réseau et des lignes.
+    Trie les points dans l'ordre horaire autour de leur centre.
     
     Args:
-        image_array: Image de l'échiquier
-        lattice_points: Points du réseau détectés
-        line_segments: Segments de lignes détectés
+        points: Liste de points à trier
         
     Returns:
-        Liste des quatre coins intérieurs de l'échiquier
+        Points triés dans l'ordre horaire
     """
-    original_points = lattice_points
+    if len(points) < 3:
+        return points
+    
+    # Calcule le centre
+    center_x = sum(p[0] for p in points) / len(points)
+    center_y = sum(p[1] for p in points) / len(points)
+    
+    # Fonction de tri par angle
+    def angle_from_center(point):
+        return (math.atan2(point[0] - center_x, point[1] - center_y) + 2 * math.pi) % (2 * math.pi)
+    
+    return sorted(points, key=angle_from_center)
 
-    def __convex_approx(points, alfa=0.01):
-        hull = scipy.spatial.ConvexHull(na(points)).vertices
-        cnt = na([points[pt] for pt in hull])
-        approx = cv2.approxPolyDP(cnt, alfa *
-                                  cv2.arcLength(cnt, True), True)
-        return llr_normalize(itertools.chain(*approx))
 
-    __cache = {}
+def yoco_remove_duplicate_items(items: List) -> List:
+    """Supprime les doublons d'une liste en préservant l'ordre."""
+    seen = set()
+    result = []
+    for item in items:
+        item_tuple = tuple(map(tuple, item)) if isinstance(item[0], list) else tuple(item)
+        if item_tuple not in seen:
+            seen.add(item_tuple)
+            result.append(item)
+    return result
 
-    def __dis(a, b):
-        idx = hash("__dis" + str(a) + str(b))
-        if idx in __cache:
-            return __cache[idx]
-        __cache[idx] = np.linalg.norm(na(a)-na(b))
-        return __cache[idx]
 
-    def nln(l1, x, dx): return \
-        np.linalg.norm(np.cross(na(l1[1])-na(l1[0]),
-                                na(l1[0])-na(x)))/dx
+def yoco_calculate_point_to_line_distance(
+    line: LineSegment,
+    point: IntPoint
+) -> float:
+    """Calcule la distance perpendiculaire d'un point à une ligne."""
+    line_vec = np.array(line[1]) - np.array(line[0])
+    point_vec = np.array(point) - np.array(line[0])
+    
+    line_length = np.linalg.norm(line_vec)
+    if line_length < 1e-8:
+        return np.linalg.norm(point_vec)
+    
+    return abs(np.cross(line_vec, point_vec)) / line_length
 
-    pregroup = [[], []]
-    score_dict = {}
 
-    lattice_points = llr_correctness(llr_normalize(lattice_points), image_array.shape)
+def yoco_calculate_distance(p1: IntPoint, p2: IntPoint) -> float:
+    """Calcule la distance euclidienne entre deux points."""
+    return np.linalg.norm(np.array(p1) - np.array(p2))
 
-    clustered_points_dict = {}
-    lattice_points = llr_polysort(lattice_points)
-    max_cluster_size, largest_cluster_points = 0, []
-    alpha_parameter = math.sqrt(cv2.contourArea(na(lattice_points))/49)
-    clustering_result = sklearn.cluster.DBSCAN(eps=alpha_parameter*4).fit(lattice_points)
-    for point_index in range(len(lattice_points)):
-        clustered_points_dict[point_index] = []
-    for point_index in range(len(lattice_points)):
-        if clustering_result.labels_[point_index] != -1:
-            clustered_points_dict[clustering_result.labels_[point_index]] += [lattice_points[point_index]]
-    for point_index in range(len(lattice_points)):
-        if len(clustered_points_dict[point_index]) > max_cluster_size:
-            max_cluster_size = len(clustered_points_dict[point_index])
-            largest_cluster_points = clustered_points_dict[point_index]
-    if len(clustered_points_dict) > 0 and len(lattice_points) > 49/2:
-        lattice_points = largest_cluster_points
 
-    convex_ring = __convex_approx(llr_polysort(lattice_points))
+def yoco_score_quadrilateral(
+    corners: np.ndarray,
+    lattice_points: List[IntPoint],
+    centroid: Point,
+    alpha: float = 5,
+    beta: float = 2
+) -> float:
+    """
+    Calcule un score pour un quadrilatère candidat.
+    
+    Le score évalue :
+    - Nombre de points du réseau contenus
+    - Surface du quadrilatère
+    - Régularité de la forme
+    - Position du centre
+    
+    Args:
+        corners: 4 coins du quadrilatère (numpy array)
+        lattice_points: Points du réseau détectés
+        centroid: Centre du nuage de points
+        alpha: Paramètre de tolérance pour la taille
+        beta: Paramètre de tolérance pour les points
+        
+    Returns:
+        Score du quadrilatère (plus élevé = meilleur)
+    """
+    # Vérifie la surface minimale
+    area = cv2.contourArea(corners)
+    min_area = (4 * alpha * alpha) * 5
+    
+    if area < min_area:
+        return 0.0
+    
+    # Compte les points contenus
+    gamma = alpha / 1.5
+    
+    if PYCLIPPER_AVAILABLE and MATPLOTLIB_AVAILABLE:
+        try:
+            pco = pyclipper.PyclipperOffset()
+            pco.AddPath(corners.tolist(), pyclipper.JT_MITER, pyclipper.ET_CLOSEDPOLYGON)
+            expanded = pco.Execute(gamma)
+            
+            if not expanded:
+                return 0.0
+            
+            path = matplotlib.path.Path(expanded[0])
+            contained = path.contains_points(lattice_points)
+            points_inside = min(np.count_nonzero(contained), 49)
+        except:
+            # Méthode alternative sans pyclipper
+            points_inside = 0
+            for pt in lattice_points:
+                if cv2.pointPolygonTest(corners, tuple(pt), False) >= 0:
+                    points_inside += 1
+            points_inside = min(points_inside, 49)
+    else:
+        # Méthode alternative
+        points_inside = 0
+        for pt in lattice_points:
+            if cv2.pointPolygonTest(corners, tuple(pt), False) >= 0:
+                points_inside += 1
+        points_inside = min(points_inside, 49)
+    
+    # Vérifie le nombre minimum de points
+    min_points = min(len(lattice_points), 49) - 2 * beta - 1
+    if points_inside < min_points:
+        return 0.0
+    
+    A = points_inside  # Nombre de points
+    B = area           # Surface
+    
+    if A == 0 or B == 0:
+        return 0.0
+    
+    # Calcule la distance au centroïde
+    corners_center = np.mean(corners, axis=0)
+    G = np.linalg.norm(np.array(centroid) - corners_center)
+    
+    # Calcule l'erreur de forme (distance des points aux bords)
+    E = 0
+    F = 0
+    edges = [
+        [corners[0], corners[1]],
+        [corners[1], corners[2]],
+        [corners[2], corners[3]],
+        [corners[3], corners[0]]
+    ]
+    
+    for edge in edges:
+        edge_length = yoco_calculate_distance(edge[0], edge[1])
+        for pt in lattice_points:
+            if cv2.pointPolygonTest(corners, tuple(pt), False) >= 0:
+                dist = yoco_calculate_point_to_line_distance(edge, pt)
+                if dist < gamma:
+                    E += dist
+                    F += 1
+    
+    if F == 0:
+        return 0.0
+    
+    E /= F
+    
+    # Score final
+    C = 1 + (E / A) ** (1/3)  # Régularité
+    D = 1 + (G / A) ** (1/5)  # Centroïde
+    
+    score = (A ** 4) / ((B ** 2) * C * D)
+    
+    return score
 
-    point_count = len(lattice_points)
-    beta_parameter = point_count*(5/100)
-    alpha_parameter = math.sqrt(cv2.contourArea(na(lattice_points))/49)
 
-    x_coords = [point[0] for point in lattice_points]
-    y_coords = [point[1] for point in lattice_points]
-    centroid_point = (sum(x_coords) / len(lattice_points),
-                sum(y_coords) / len(lattice_points))
+def yoco_cluster_lattice_points(
+    points: List[IntPoint],
+    alpha: float
+) -> List[IntPoint]:
+    """
+    Filtre les points aberrants avec DBSCAN.
+    
+    Args:
+        points: Points à filtrer
+        alpha: Paramètre de distance
+        
+    Returns:
+        Points du cluster principal
+    """
+    if not SKLEARN_AVAILABLE or len(points) < 3:
+        return points
+    
+    points_array = np.array(points)
+    
+    # Clustering DBSCAN
+    clustering = sklearn.cluster.DBSCAN(eps=alpha * 4).fit(points_array)
+    
+    # Trouve le plus grand cluster
+    clusters = collections.defaultdict(list)
+    for i, label in enumerate(clustering.labels_):
+        if label != -1:  # Ignore le bruit
+            clusters[label].append(points[i])
+    
+    if not clusters:
+        return points
+    
+    # Retourne le plus grand cluster
+    largest = max(clusters.values(), key=len)
+    
+    return largest if len(largest) > len(points) / 2 else points
 
-    def __v(l):
-        y_0, x_0 = l[0][0], l[0][1]
-        y_1, x_1 = l[1][0], l[1][1]
 
-        x_2 = 0
-        t = (x_0-x_2)/(x_0-x_1+0.0001)
-        a = [int((1-t)*x_0+t*x_1), int((1-t)*y_0+t*y_1)][::-1]
+def yoco_extend_line_to_image_bounds(
+    line: LineSegment,
+    image_shape: Tuple[int, ...],
+    is_vertical: bool
+) -> Tuple[IntPoint, IntPoint]:
+    """
+    Étend une ligne jusqu'aux bords de l'image.
+    
+    Args:
+        line: Segment de ligne
+        image_shape: Dimensions de l'image
+        is_vertical: True si la ligne est plutôt verticale
+        
+    Returns:
+        Deux points définissant la ligne étendue
+    """
+    height, width = image_shape[:2]
+    
+    if is_vertical:
+        # Étend vers le haut et le bas
+        x0, y0 = line[0]
+        x1, y1 = line[1]
+        
+        # Paramétrique: x = x0 + t*(x1-x0), y = y0 + t*(y1-y0)
+        # Pour y = 0: t = -y0/(y1-y0)
+        # Pour y = height: t = (height-y0)/(y1-y0)
+        
+        dy = y1 - y0
+        if abs(dy) < 1e-8:
+            return line[0], line[1]
+        
+        dx = x1 - x0
+        
+        t_top = -y0 / dy
+        t_bottom = (height - y0) / dy
+        
+        pt_top = [int(x0 + t_top * dx), int(y0 + t_top * dy)]
+        pt_bottom = [int(x0 + t_bottom * dx), int(y0 + t_bottom * dy)]
+        
+        return pt_top, pt_bottom
+    else:
+        # Étend vers la gauche et la droite
+        x0, y0 = line[0]
+        x1, y1 = line[1]
+        
+        dx = x1 - x0
+        if abs(dx) < 1e-8:
+            return line[0], line[1]
+        
+        dy = y1 - y0
+        
+        t_left = -x0 / dx
+        t_right = (width - x0) / dx
+        
+        pt_left = [int(x0 + t_left * dx), int(y0 + t_left * dy)]
+        pt_right = [int(x0 + t_right * dx), int(y0 + t_right * dy)]
+        
+        return pt_left, pt_right
 
-        x_2 = image_array.shape[0]
-        t = (x_0-x_2)/(x_0-x_1+0.0001)
-        b = [int((1-t)*x_0+t*x_1), int((1-t)*y_0+t*y_1)][::-1]
 
-        poly1 = llr_polysort([[0, 0], [0, image_array.shape[0]], a, b])
-        s1 = llr_polyscore(na(poly1), lattice_points, centroid_point, beta=beta_parameter, alfa=alpha_parameter/2)
-        poly2 = llr_polysort([a, b,
-                              [image_array.shape[1], 0], [image_array.shape[1], image_array.shape[0]]])
-        s2 = llr_polyscore(na(poly2), lattice_points, centroid_point, beta=beta_parameter, alfa=alpha_parameter/2)
-
-        return [a, b], s1, s2
-
-    def __h(l):
-        x_0, y_0 = l[0][0], l[0][1]
-        x_1, y_1 = l[1][0], l[1][1]
-
-        x_2 = 0
-        t = (x_0-x_2)/(x_0-x_1+0.0001)
-        a = [int((1-t)*x_0+t*x_1), int((1-t)*y_0+t*y_1)]
-
-        x_2 = image_array.shape[1]
-        t = (x_0-x_2)/(x_0-x_1+0.0001)
-        b = [int((1-t)*x_0+t*x_1), int((1-t)*y_0+t*y_1)]
-
-        poly1 = llr_polysort([[0, 0], [image_array.shape[1], 0], a, b])
-        s1 = llr_polyscore(na(poly1), lattice_points, centroid_point, beta=beta_parameter, alfa=alpha_parameter/2)
-        poly2 = llr_polysort([a, b,
-                              [0, image_array.shape[0]], [image_array.shape[1], image_array.shape[0]]])
-        s2 = llr_polyscore(na(poly2), lattice_points, centroid_point, beta=beta_parameter, alfa=alpha_parameter/2)
-
-        return [a, b], s1, s2
-
-    for line_seg in line_segments:
-        for point_coord in lattice_points:
-            t1 = nln(line_seg, point_coord, __dis(*line_seg)) < alpha_parameter
-            t2 = nln(line_seg, centroid_point, __dis(*line_seg)) > alpha_parameter * 2.5
-
-            if t1 and t2:
-                delta_x, delta_y = line_seg[0][0]-line_seg[1][0], line_seg[0][1]-line_seg[1][1]
-                if abs(delta_x) < abs(delta_y):
-                    extended_line, s1, s2 = __v(line_seg)
-                    orientation = 0
-                else:
-                    extended_line, s1, s2 = __h(line_seg)
-                    orientation = 1
-                if s1 == 0 and s2 == 0:
-                    continue
-                pregroup[orientation] += [extended_line]
-
-    pregroup[0] = llr_unique(pregroup[0])
-    pregroup[1] = llr_unique(pregroup[1])
-
-    for vertical_pair in itertools.combinations(pregroup[0], 2):
-        for horizontal_pair in itertools.combinations(pregroup[1], 2):
-            polygon_corners = laps_intersections([vertical_pair[0], vertical_pair[1], horizontal_pair[0], horizontal_pair[1]])
-            polygon_corners = llr_correctness(polygon_corners, image_array.shape)
-            if len(polygon_corners) != 4:
+def yoco_detect_inner_board_corners(
+    image: np.ndarray,
+    lattice_points: List[Point],
+    lines: List[LineSegment]
+) -> List[IntPoint]:
+    """
+    Détecte les quatre coins intérieurs de l'échiquier.
+    
+    Pipeline :
+    1. Prépare et filtre les points du réseau
+    2. Identifie les lignes candidates pour les bords
+    3. Évalue tous les quadrilatères possibles
+    4. Sélectionne le meilleur
+    
+    Args:
+        image: Image de l'échiquier
+        lattice_points: Points du réseau détectés
+        lines: Lignes détectées
+        
+    Returns:
+        Liste des 4 coins du plateau
+        
+    Example:
+        >>> corners = yoco_detect_inner_board_corners(image, points, lines)
+        >>> print(f"Coins: {corners}")
+    """
+    # Normalise et filtre les points
+    points = yoco_normalize_points(lattice_points)
+    points = yoco_filter_valid_points(points, image.shape)
+    points = yoco_sort_points_clockwise(points)
+    
+    if len(points) < 4:
+        raise ValueError("Pas assez de points pour détecter l'échiquier")
+    
+    # Paramètres
+    area = cv2.contourArea(np.array(points))
+    alpha = math.sqrt(area / 49)  # Taille moyenne d'une case
+    beta = len(points) * (5 / 100)  # Tolérance
+    
+    # Filtre les points aberrants
+    points = yoco_cluster_lattice_points(points, alpha)
+    
+    if len(points) < 4:
+        raise ValueError("Pas assez de points après filtrage")
+    
+    # Calcule le centroïde
+    centroid = (
+        sum(p[0] for p in points) / len(points),
+        sum(p[1] for p in points) / len(points)
+    )
+    
+    # Sépare les lignes verticales et horizontales
+    vertical_lines = []
+    horizontal_lines = []
+    
+    for line in lines:
+        dx = abs(line[0][0] - line[1][0])
+        dy = abs(line[0][1] - line[1][1])
+        
+        # Vérifie si la ligne passe près des points et loin du centre
+        is_near_point = False
+        is_far_from_center = True
+        
+        for pt in points:
+            dist_to_line = yoco_calculate_point_to_line_distance(line, pt)
+            if dist_to_line < alpha:
+                is_near_point = True
+                break
+        
+        dist_to_center = yoco_calculate_point_to_line_distance(line, list(centroid))
+        if dist_to_center < alpha * 2.5:
+            is_far_from_center = False
+        
+        if is_near_point and is_far_from_center:
+            is_vertical = dx < dy
+            extended = yoco_extend_line_to_image_bounds(line, image.shape, is_vertical)
+            
+            if is_vertical:
+                vertical_lines.append(list(extended))
+            else:
+                horizontal_lines.append(list(extended))
+    
+    # Supprime les doublons
+    vertical_lines = yoco_remove_duplicate_items(vertical_lines)
+    horizontal_lines = yoco_remove_duplicate_items(horizontal_lines)
+    
+    if len(vertical_lines) < 2 or len(horizontal_lines) < 2:
+        # Fallback: utilise l'enveloppe convexe
+        hull = scipy.spatial.ConvexHull(np.array(points))
+        hull_points = [points[i] for i in hull.vertices]
+        approx = cv2.approxPolyDP(
+            np.array(hull_points),
+            0.01 * cv2.arcLength(np.array(hull_points), True),
+            True
+        )
+        if len(approx) >= 4:
+            return yoco_normalize_points([pt[0].tolist() for pt in approx[:4]])
+        return yoco_sort_points_clockwise(hull_points[:4])
+    
+    # Évalue tous les quadrilatères candidats
+    candidates: Dict[float, np.ndarray] = {}
+    
+    for v_pair in itertools.combinations(vertical_lines, 2):
+        for h_pair in itertools.combinations(horizontal_lines, 2):
+            # Trouve les 4 intersections
+            all_lines = [v_pair[0], v_pair[1], h_pair[0], h_pair[1]]
+            intersections = yoco_find_line_intersections(all_lines)
+            intersections = yoco_filter_valid_points(
+                yoco_normalize_points(intersections),
+                image.shape
+            )
+            
+            if len(intersections) != 4:
                 continue
-            polygon_corners = na(llr_polysort(llr_normalize(polygon_corners)))
-            if not cv2.isContourConvex(polygon_corners):
+            
+            # Trie et vérifie la convexité
+            sorted_corners = np.array(yoco_sort_points_clockwise(intersections))
+            
+            if not cv2.isContourConvex(sorted_corners):
                 continue
-            score_dict[-llr_polyscore(polygon_corners, lattice_points, centroid_point,
-                             beta=beta_parameter, alfa=alpha_parameter/2)] = polygon_corners
+            
+            # Calcule le score
+            score = yoco_score_quadrilateral(
+                sorted_corners, points, centroid,
+                alpha=alpha / 2, beta=beta
+            )
+            
+            if score > 0:
+                candidates[-score] = sorted_corners  # Négatif pour tri décroissant
+    
+    if not candidates:
+        raise ValueError("Aucun quadrilatère valide trouvé")
+    
+    # Sélectionne le meilleur
+    best_corners = candidates[min(candidates.keys())]
+    
+    return yoco_normalize_points(best_corners.tolist())
 
-    score_dict = collections.OrderedDict(sorted(score_dict.items()))
-    best_score_key = next(iter(score_dict))
-    four_corner_points = llr_normalize(score_dict[best_score_key])
 
-    return four_corner_points
-
-
-def yoco_pad_board_corners(corner_points, image_array):
+def yoco_pad_board_corners(
+    corners: List[IntPoint],
+    image: np.ndarray,
+    padding: int = 60
+) -> List[IntPoint]:
     """
     Ajoute du padding autour des coins de l'échiquier.
     
+    Étend le quadrilatère vers l'extérieur pour capturer
+    les bords de l'échiquier qui pourraient être coupés.
+    
     Args:
-        corner_points: Quatre points définissant les coins
-        image_array: Image de l'échiquier
+        corners: Quatre coins du plateau
+        image: Image de référence
+        padding: Quantité de padding en pixels
         
     Returns:
-        Points avec padding appliqué
+        Coins avec padding appliqué
     """
-    padding_clipper = pyclipper.PyclipperOffset()
-    padding_clipper.AddPath(corner_points, pyclipper.JT_MITER, pyclipper.ET_CLOSEDPOLYGON)
-
-    padded_points = padding_clipper.Execute(60)[0]
-
-    return padded_points
+    if not PYCLIPPER_AVAILABLE:
+        # Sans pyclipper, retourne les coins originaux
+        return corners
+    
+    try:
+        pco = pyclipper.PyclipperOffset()
+        pco.AddPath(corners, pyclipper.JT_MITER, pyclipper.ET_CLOSEDPOLYGON)
+        padded = pco.Execute(padding)
+        
+        if padded and len(padded[0]) >= 4:
+            return padded[0]
+    except:
+        pass
+    
+    return corners

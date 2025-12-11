@@ -409,20 +409,13 @@ train_transforms = A.Compose([
    - 9 anchors adaptés aux différentes échelles
    - Meilleure couverture des ratios d'aspect
 
-### Améliorations possibles
 
-- **Architecture plus récente:** YOLOv4, YOLOv5, YOLOX
-- **Attention mechanisms:** CBAM, SE-Net
-- **Data augmentation avancée:** Mosaic, MixUp
-- **Loss functions:** GIoU, DIoU, CIoU
-- **Post-processing:** Soft-NMS, DIoU-NMS
-
-## 📝Notes importantes
+## sNotes importantes
 
 ⚠️ **Checkpoints et modèles:**
 - Les poids pré-entraînés ne sont pas inclus (fichiers volumineux)
 - Le fichier `checkpoints/checkpoint.pth.tar` doit être téléchargé séparément
-- Durée d'entraînement : ~8-10h sur GPU A100
+- Durée d'entraînement : ~3-5h sur GPU A100
 
 ⚠️ **Dataset:**
 - Le dataset PASCAL VOC doit être téléchargé via Kaggle

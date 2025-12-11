@@ -1,142 +1,347 @@
+"""
+Module de détection des points du réseau (lattice) de l'échiquier.
+
+Ce module implémente l'algorithme LAPS (Lattice Points) adapté
+pour détecter les intersections valides des lignes de l'échiquier.
+
+L'approche utilise :
+1. Calcul des intersections entre toutes les lignes détectées
+2. Validation de chaque intersection avec un classificateur
+3. Clustering des points proches pour éliminer les doublons
+"""
+
 import sys
 import os
-# Ajoute le répertoire racine du projet au path pour importer deps
+import numpy as np
+import cv2
+import collections
+from typing import List, Tuple, Optional
+import scipy.spatial
+import scipy.cluster.hierarchy
+
+# Configuration des imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
 src_dir = os.path.dirname(current_dir)
 project_root = os.path.dirname(src_dir)
 sys.path.insert(0, project_root)
-import deps
 
-import numpy as np
-import cv2
-import collections
-import scipy
-import scipy.cluster
-import tensorflow as tf
+import deps.geometry as geometry
 
-# Chemin vers le modèle LAPS (optionnel, utilise deps.laps si non disponible)
-_laps_model_path = os.path.join(project_root, 'data', 'laps_models', 'laps.h5')
-try:
-    if os.path.exists(_laps_model_path):
-        NEURAL_MODEL = tf.keras.models.load_model(_laps_model_path, compile=False)
-        from tensorflow.keras.optimizers import RMSprop
-        NEURAL_MODEL.compile(RMSprop(learning_rate=0.001),
-                            loss='categorical_crossentropy',
-                            metrics=['categorical_accuracy'])
-    else:
-        raise FileNotFoundError(f"Model file not found: {_laps_model_path}")
-except Exception as e:
-    print(f"Warning: Could not load model from {_laps_model_path}: {e}")
+Point = Tuple[float, float]
+LineSegment = List[List[int]]
+
+# Chargement du modèle de classification (optionnel)
+_MODEL_LOADED = False
+_NEURAL_MODEL = None
+
+def _load_classification_model():
+    """Charge le modèle de classification des intersections."""
+    global _MODEL_LOADED, _NEURAL_MODEL
+    
+    if _MODEL_LOADED:
+        return _NEURAL_MODEL
+    
+    model_path = os.path.join(project_root, 'data', 'laps_models', 'laps.h5')
+    
     try:
-        from deps.laps import model as NEURAL_MODEL
-    except ImportError:
-        print("Warning: Could not load model from deps.laps either. Some functionality may be limited.")
-        NEURAL_MODEL = None
-
-
-def laps_intersections(lines):
-    __lines = [[(a[0], a[1]), (b[0], b[1])] for a, b in lines]
-    return deps.geometry.isect_segments(__lines)
-
-
-def laps_cluster(points, max_dist=10):
-    Y = scipy.spatial.distance.pdist(points)
-    Z = scipy.cluster.hierarchy.single(Y)
-    T = scipy.cluster.hierarchy.fcluster(Z, max_dist, 'distance')
-    clusters = collections.defaultdict(list)
-    for i in range(len(T)):
-        clusters[T[i]].append(points[i])
-    clusters = clusters.values()
-    clusters = map(lambda arr: (np.mean(np.array(arr)[:, 0]),
-                                np.mean(np.array(arr)[:, 1])), clusters)
-    return list(clusters)
-
-
-def laps_detector(img):
-    global NC_LAYER
-
-    hashid = str(hash(img.tostring()))
-
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    img = cv2.threshold(img, 0, 255, cv2.THRESH_OTSU)[1]
-    img = cv2.Canny(img, 0, 255)
-    img = cv2.resize(img, (21, 21), interpolation=cv2.INTER_CUBIC)
-
-    imgd = img
-
-    X = [np.where(img > int(255/2), 1, 0).ravel()]
-    X = X[0].reshape([-1, 21, 21, 1])
-
-    img = cv2.dilate(img, None)
-    mask = cv2.copyMakeBorder(img, top=1, bottom=1, left=1, right=1,
-                              borderType=cv2.BORDER_CONSTANT, value=[255, 255, 255])
-    mask = cv2.bitwise_not(mask)
-    i = 0
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL,
-                                   cv2.CHAIN_APPROX_NONE)
-
-    _c = np.zeros((23, 23, 3), np.uint8)
-
-    for cnt in contours:
-        (x, y), radius = cv2.minEnclosingCircle(cnt)
-        x, y = int(x), int(y)
-        approx = cv2.approxPolyDP(cnt, 0.1*cv2.arcLength(cnt, True), True)
-        if len(approx) == 4 and radius < 14:
-            cv2.drawContours(_c, [cnt], 0, (0, 255, 0), 1)
-            i += 1
+        import tensorflow as tf
+        if os.path.exists(model_path):
+            _NEURAL_MODEL = tf.keras.models.load_model(model_path, compile=False)
+            from tensorflow.keras.optimizers import RMSprop
+            _NEURAL_MODEL.compile(
+                RMSprop(learning_rate=0.001),
+                loss='categorical_crossentropy',
+                metrics=['categorical_accuracy']
+            )
         else:
-            cv2.drawContours(_c, [cnt], 0, (0, 0, 255), 1)
-
-    if i == 4:
-        return (True, 1)
-
-    pred = NEURAL_MODEL.predict(X)
-    a, b = pred[0][0], pred[0][1]
-    t = a > b and b < 0.03 and a > 0.975
-
-    if t:
-        return (True, pred[0])
-    else:
-        return (False, pred[0])
-
-################################################################################
+            # Essaie de charger depuis deps
+            from deps.laps import model as _NEURAL_MODEL
+    except Exception as e:
+        print(f"Avertissement: Impossible de charger le modèle LAPS: {e}")
+        _NEURAL_MODEL = None
+    
+    _MODEL_LOADED = True
+    return _NEURAL_MODEL
 
 
-def yoco_detect_lattice_points(image_array, line_segments, detection_size=10):
+def yoco_find_line_intersections(lines: List[LineSegment]) -> List[Point]:
     """
-    Détecte les points du réseau (lattice) de l'échiquier à partir des lignes détectées.
+    Trouve toutes les intersections entre les lignes.
+    
+    Utilise l'algorithme de géométrie pour calculer efficacement
+    toutes les intersections entre segments.
     
     Args:
-        image_array: Image de l'échiquier
-        line_segments: Liste des segments de lignes détectées
-        detection_size: Taille de la fenêtre de détection
+        lines: Liste des segments de lignes
         
     Returns:
-        Liste des points du réseau détectés
+        Liste des points d'intersection
     """
-    intersection_points, validated_points = laps_intersections(line_segments), []
+    # Convertit au format attendu par le module geometry
+    segments = [((a[0], a[1]), (b[0], b[1])) for a, b in lines]
+    
+    # Calcule les intersections
+    intersections = geometry.isect_segments(segments)
+    
+    return intersections
 
-    for point_coord in intersection_points:
-        point_coord = list(map(int, point_coord))
 
-        detection_x1 = max(0, int(point_coord[0]-detection_size-1))
-        detection_x2 = max(0, int(point_coord[0]+detection_size))
-        detection_y1 = max(0, int(point_coord[1]-detection_size))
-        detection_y2 = max(0, int(point_coord[1]+detection_size+1))
+def yoco_cluster_nearby_points(
+    points: List[Point],
+    max_distance: float = 10.0
+) -> List[Point]:
+    """
+    Regroupe les points proches en un seul point (leur moyenne).
+    
+    Utilise le clustering hiérarchique pour fusionner les points
+    qui sont trop proches les uns des autres.
+    
+    Args:
+        points: Liste des points à regrouper
+        max_distance: Distance maximale pour fusionner deux points
+        
+    Returns:
+        Liste des points après clustering
+    """
+    if len(points) < 2:
+        return list(points)
+    
+    points_array = np.array(points)
+    
+    # Calcule la matrice de distances
+    distances = scipy.spatial.distance.pdist(points_array)
+    
+    # Clustering hiérarchique
+    linkage = scipy.cluster.hierarchy.single(distances)
+    clusters = scipy.cluster.hierarchy.fcluster(linkage, max_distance, 'distance')
+    
+    # Regroupe les points par cluster
+    cluster_points = collections.defaultdict(list)
+    for i, cluster_id in enumerate(clusters):
+        cluster_points[cluster_id].append(points[i])
+    
+    # Calcule le centre de chaque cluster
+    centroids = []
+    for points_in_cluster in cluster_points.values():
+        arr = np.array(points_in_cluster)
+        centroid = (np.mean(arr[:, 0]), np.mean(arr[:, 1]))
+        centroids.append(centroid)
+    
+    return centroids
 
-        detection_image_patch = image_array[detection_y1:detection_y2, detection_x1:detection_x2]
-        patch_shape = np.shape(detection_image_patch)
 
-        if patch_shape[0] <= 0 or patch_shape[1] <= 0:
+def yoco_extract_intersection_patch(
+    image: np.ndarray,
+    center: Point,
+    patch_size: int = 10
+) -> Optional[np.ndarray]:
+    """
+    Extrait une petite région autour d'un point d'intersection.
+    
+    Cette région sera analysée pour déterminer si c'est une
+    intersection valide de l'échiquier.
+    
+    Args:
+        image: Image source
+        center: Centre de la région à extraire
+        patch_size: Demi-taille de la région
+        
+    Returns:
+        Région extraite ou None si invalide
+    """
+    x, y = int(center[0]), int(center[1])
+    height, width = image.shape[:2]
+    
+    # Calcule les bornes
+    x1 = max(0, x - patch_size - 1)
+    x2 = max(0, x + patch_size)
+    y1 = max(0, y - patch_size)
+    y2 = max(0, y + patch_size + 1)
+    
+    # Vérifie que la région est valide
+    if x2 <= x1 or y2 <= y1:
+        return None
+    
+    patch = image[y1:y2, x1:x2]
+    
+    if patch.shape[0] <= 0 or patch.shape[1] <= 0:
+        return None
+    
+    return patch
+
+
+def yoco_validate_intersection_geometric(patch: np.ndarray) -> Tuple[bool, float]:
+    """
+    Valide une intersection avec une méthode géométrique.
+    
+    Recherche 4 contours quadrilatéraux dans la région,
+    ce qui indique une intersection de lignes d'échiquier.
+    
+    Args:
+        patch: Région autour de l'intersection
+        
+    Returns:
+        Tuple (est_valide, score_de_confiance)
+    """
+    # Prétraitement
+    gray = cv2.cvtColor(patch, cv2.COLOR_BGR2GRAY) if len(patch.shape) == 3 else patch
+    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_OTSU)
+    edges = cv2.Canny(binary, 0, 255)
+    
+    # Dilate pour connecter les contours
+    dilated = cv2.dilate(edges, None)
+    
+    # Ajoute une bordure blanche
+    bordered = cv2.copyMakeBorder(
+        dilated, 1, 1, 1, 1,
+        cv2.BORDER_CONSTANT, value=[255, 255, 255]
+    )
+    bordered = cv2.bitwise_not(bordered)
+    
+    # Trouve les contours
+    contours, _ = cv2.findContours(bordered, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    
+    # Compte les quadrilatères
+    quad_count = 0
+    for contour in contours:
+        (x, y), radius = cv2.minEnclosingCircle(contour)
+        approx = cv2.approxPolyDP(contour, 0.1 * cv2.arcLength(contour, True), True)
+        
+        if len(approx) == 4 and radius < 14:
+            quad_count += 1
+    
+    # 4 quadrilatères = intersection valide
+    return quad_count == 4, float(quad_count) / 4.0
+
+
+def yoco_validate_intersection_neural(patch: np.ndarray) -> Tuple[bool, float]:
+    """
+    Valide une intersection avec le réseau de neurones.
+    
+    Le modèle a été entraîné pour classifier les régions
+    comme intersections valides ou non.
+    
+    Args:
+        patch: Région autour de l'intersection
+        
+    Returns:
+        Tuple (est_valide, score_de_confiance)
+    """
+    model = _load_classification_model()
+    
+    if model is None:
+        # Fallback sur la méthode géométrique
+        return yoco_validate_intersection_geometric(patch)
+    
+    # Prétraite l'image
+    gray = cv2.cvtColor(patch, cv2.COLOR_BGR2GRAY) if len(patch.shape) == 3 else patch
+    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_OTSU)
+    edges = cv2.Canny(binary, 0, 255)
+    resized = cv2.resize(edges, (21, 21), interpolation=cv2.INTER_CUBIC)
+    
+    # Prépare l'entrée
+    input_data = np.where(resized > 127, 1, 0).reshape(-1, 21, 21, 1)
+    
+    # Prédit
+    prediction = model.predict(input_data, verbose=0)
+    prob_valid = prediction[0][0]
+    prob_invalid = prediction[0][1]
+    
+    # Critères de validation
+    is_valid = (prob_valid > prob_invalid and 
+                prob_invalid < 0.03 and 
+                prob_valid > 0.975)
+    
+    return is_valid, float(prob_valid)
+
+
+def yoco_validate_intersection(
+    image: np.ndarray,
+    point: Point,
+    patch_size: int = 10
+) -> Tuple[bool, float]:
+    """
+    Valide si un point est une intersection valide de l'échiquier.
+    
+    Combine la validation géométrique et neuronale pour
+    une meilleure précision.
+    
+    Args:
+        image: Image de l'échiquier
+        point: Point à valider
+        patch_size: Taille de la région à analyser
+        
+    Returns:
+        Tuple (est_valide, score_de_confiance)
+    """
+    # Extrait la région
+    patch = yoco_extract_intersection_patch(image, point, patch_size)
+    
+    if patch is None:
+        return False, 0.0
+    
+    # Essaie d'abord la validation géométrique
+    is_valid_geo, score_geo = yoco_validate_intersection_geometric(patch)
+    
+    if is_valid_geo:
+        return True, score_geo
+    
+    # Sinon, utilise le réseau de neurones
+    return yoco_validate_intersection_neural(patch)
+
+
+def yoco_detect_lattice_points(
+    image: np.ndarray,
+    lines: List[LineSegment],
+    patch_size: int = 10
+) -> List[Point]:
+    """
+    Détecte les points du réseau de l'échiquier.
+    
+    Pipeline complet :
+    1. Trouve toutes les intersections des lignes
+    2. Valide chaque intersection
+    3. Regroupe les points proches
+    
+    Args:
+        image: Image BGR de l'échiquier
+        lines: Lignes détectées de l'échiquier
+        patch_size: Taille des régions pour la validation
+        
+    Returns:
+        Liste des points du réseau validés
+        
+    Example:
+        >>> image = cv2.imread("chessboard.jpg")
+        >>> lines = yoco_detect_chessboard_lines(image)
+        >>> points = yoco_detect_lattice_points(image, lines)
+        >>> print(f"Détecté {len(points)} points")
+    """
+    # Étape 1: Trouve toutes les intersections
+    all_intersections = yoco_find_line_intersections(lines)
+    
+    # Étape 2: Valide chaque intersection
+    valid_points = []
+    
+    for point in all_intersections:
+        # Convertit en entiers
+        int_point = (int(point[0]), int(point[1]))
+        
+        # Ignore les points hors de l'image
+        if int_point[0] < 0 or int_point[1] < 0:
             continue
-
-        detection_result = laps_detector(detection_image_patch)
-        if not detection_result[0]:
+        
+        height, width = image.shape[:2]
+        if int_point[0] >= width or int_point[1] >= height:
             continue
-
-        if point_coord[0] < 0 or point_coord[1] < 0:
-            continue
-        validated_points += [point_coord]
-    clustered_points = laps_cluster(validated_points)
-
+        
+        # Valide l'intersection
+        is_valid, _ = yoco_validate_intersection(image, int_point, patch_size)
+        
+        if is_valid:
+            valid_points.append(int_point)
+    
+    # Étape 3: Regroupe les points proches
+    clustered_points = yoco_cluster_nearby_points(valid_points)
+    
     return clustered_points

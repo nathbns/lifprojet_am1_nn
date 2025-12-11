@@ -65,7 +65,7 @@ def yoco_preprocess_single_chess_image(game_name, perspective_version, image_num
     
     Args:
         game_name: Nom de la partie
-        perspective_version: Version de l'image ('orig' ou 'rev')
+        perspective_version: Version de l'image ('white' ou 'black')
         image_number: Numéro de l'image dans la séquence
         
     Returns:
@@ -134,7 +134,7 @@ def yoco_preprocess_chess_games_list(games_list):
         games_list: Liste des noms de parties à traiter
     """
     for game_name in games_list:
-        for perspective_version in ['orig', 'rev']:
+        for perspective_version in ['white', 'black']:
             image_files_list = []
             folder_path_pattern = RAW_DATA_FOLDER + '%s/%s/*' % (game_name, perspective_version)
             for file_path_item in glob.glob(folder_path_pattern):
@@ -162,5 +162,5 @@ if __name__ == '__main__':
     # vachier-lagrave_carlsen_2023, david_vachier-lagrave_2014
     # game_list = ['david_vachier-lagrave_2014']
     # yoco_preprocess_chess_games_list(game_list)
-    yoco_preprocess_single_chess_image('vachier-lagrave_carlsen_2023', 'rev', 57)
+    yoco_preprocess_single_chess_image('vachier-lagrave_carlsen_2023', 'black', 57)
 
