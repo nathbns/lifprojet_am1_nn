@@ -37,7 +37,15 @@ Implémentation from scratch de l'architecture YOLOv1 basée sur l'article origi
 ### YOLOv3 - You Only Look Once (Version 3)
 Deuxième itération avec l'architecture YOLOv3 améliorée.
 
-**Note:** Code en cours de finalisation.
+**Détails techniques:**
+- Architecture: Réseau convolutif avec 53 couches convolutives + pas de couche fully connected
+- Nouvelles notions : multi-dimensionnel, 9 anchors.
+- Dataset: PASCAL VOC (téléchargé via Kaggle)
+- Entraînement: 5 heures sur GPU A100 (Google Colab)
+
+**Essayer le modèle:**
+- HuggingFace Space: https://huggingface.co/spaces/nathbns/yolo3_from_scratch
+- Application web: https://yoco-ochre.vercel.app
 
 ## Application Web
 
@@ -70,9 +78,9 @@ bun run dev
 Distribution du temps consacré à chaque composant du projet :
 
 ```
-YOCO - Chess Recognition     ████████████████████████████ 45%
+YOCO - Chess Recognition     ████████████████████████████ 50%
 
-YOLOv1 Implementation        ████████████████ 25%
+YOLOv1 Implementation        ████████████████ 20%
 
 Application Web              ████████ 20%
 
@@ -89,7 +97,6 @@ YOLOv3 Implementation        ██████ 10%
 ## Références académiques
 
 - Redmon, J., Divvala, S., Girshick, R., & Farhadi, A. (2016). "You only look once: Unified, real-time object detection." CVPR.
-- D'autre à rajouter.
 
 ## Auteur
 Nathan BEN SOUSSAN \
