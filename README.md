@@ -13,7 +13,7 @@ Système de reconnaissance et d'analyse de positions d'échecs par vision par or
 - Output: Notation FEN (Forsyth-Edwards Notation)
 
 **Dataset et modèle:**
-- Dataset HuggingFace: https://huggingface.co/datasets/nathbns/chess-yoco **(FAITE FROM SCRATCH, 90 téléchargement sur HF et en trending dans la catégorie 'image classification'!! 🤗)**
+- Dataset HuggingFace: https://huggingface.co/datasets/nathbns/chess-yoco **(FAITE FROM SCRATCH, 128 téléchargement sur HF et en trending dans la catégorie 'image classification'!! 🤗)**
 
 ![image](public/setup_dataset.jpeg)
 - Modèle HuggingFace: https://huggingface.co/spaces/nathbns/yoco_first_version
